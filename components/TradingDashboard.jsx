@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const API = "http://localhost:8000";
+const API = "http://13.140.184.217:8000";
 
 // ── Palette ────────────────────────────────────────────────────────────────
 // Deep navy terminal + amber accent + signal green/red
