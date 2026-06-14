@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const API = "http://13.140.184.217:8000";
+const API = "https://bear-products-assign-advisors.trycloudflare.com";
 
 // ── Palette ────────────────────────────────────────────────────────────────
 // Deep navy terminal + amber accent + signal green/red
