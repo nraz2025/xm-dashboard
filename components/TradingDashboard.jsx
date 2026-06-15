@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-const API = " https://rays-acres-diffs-heath.trycloudflare.com";
+const API = "https://rays-acres-diffs-heath.trycloudflare.com";
 
 // ── Palette ────────────────────────────────────────────────────────────────
 // Deep navy terminal + amber accent + signal green/red
@@ -140,11 +140,23 @@ export default function TradingDashboard() {
   const [timeframe, setTimeframe] = useState("H1");
   const [loading, setLoading]     = useState({});
   const [toast, setToast]         = useState(null);
-  const [autoMode, setAutoMode]   = useState(false);
+  const [autoMode, setAutoMode]   = useState(true);
   const [tab, setTab]             = useState("positions");
   const [candles, setCandles]     = useState([]);
-  const [orderForm, setOrderForm] = useState({ lot: 0.01, sl: 50, tp: 100 });
+  const [orderForm, setOrderForm] = useState({ lot: 0.01, sl: 20, tp: 40 });
   const autoRef = useRef(null);
+  const [autoLog, setAutoLog]           = useState([]);
+  const [lastTradeTime, setLastTradeTime] = useState(null);
+  const [botMode, setBotMode]           = useState("bot1");
+
+  const MAX_POSITIONS = 3;
+  const COOLDOWN_HOURS = 4;
+  const SCAN_PAIRS = ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD","XAUUSD"];
+
+  const addAutoLog = (msg) => {
+    const time = new Date().toLocaleTimeString("en-MY", { hour12: false });
+    setAutoLog(prev => [`[${time}] ${msg}`, ...prev].slice(0, 20));
+  };
 
   const setLoad = (k, v) => setLoading(p => ({ ...p, [k]: v }));
   const showToast = (msg, type = "ok") => {
@@ -235,25 +247,95 @@ export default function TradingDashboard() {
     } catch (e) { showToast("Close failed: " + e.message, "err"); }
   };
 
-  // Auto trade loop
+  // Auto trade loop — scan ALL pairs
   useEffect(() => {
     if (!autoMode) { clearInterval(autoRef.current); return; }
     const run = async () => {
       try {
-        const r = await fetch(`${API}/analyze/${symbol}?timeframe=${timeframe}`);
-        const data = await r.json();
-        const sig = data?.signal?.direction;
-        const conf = data?.signal?.confidence || 0;
-        if (conf >= 60) {
-          if (sig === "STRONG BUY")  await placeOrder("buy");
-          if (sig === "STRONG SELL") await placeOrder("sell");
+        // ── Check max positions ──────────────────────────────
+        const posRes = await fetch(`${API}/positions`);
+        const openPos = await posRes.json();
+        if (openPos.length >= MAX_POSITIONS) {
+          addAutoLog(`⏸ Max positions (${MAX_POSITIONS}) reached — skipping`);
+          return;
         }
-        fetchPositions();
-      } catch {}
+
+        // ── Check cooldown ───────────────────────────────────
+        if (lastTradeTime) {
+          const hoursSince = (Date.now() - lastTradeTime) / 3600000;
+          if (hoursSince < COOLDOWN_HOURS) {
+            const remaining = (COOLDOWN_HOURS - hoursSince).toFixed(1);
+            addAutoLog(`⏳ Cooldown: ${remaining}h remaining`);
+            return;
+          }
+        }
+
+        // ── Scan all pairs ───────────────────────────────────
+        addAutoLog(`🔍 Scanning ${SCAN_PAIRS.length} pairs...`);
+        const endpoint = botMode === "bot2" ? "analyze-vp" : "analyze";
+        const signals = [];
+
+        for (const pair of SCAN_PAIRS) {
+          try {
+            const r = await fetch(`${API}/${endpoint}/${pair}?timeframe=${timeframe}`);
+            const data = await r.json();
+            const sig  = data?.signal?.direction;
+            const conf = data?.signal?.confidence || 0;
+            if (conf >= 60 && (sig === "STRONG BUY" || sig === "STRONG SELL")) {
+              signals.push({ pair, sig, conf, data });
+            }
+          } catch {}
+        }
+
+        if (signals.length === 0) {
+          addAutoLog(`😴 No strong signals found`);
+          return;
+        }
+
+        // ── Pick strongest signal ─────────────────────────────
+        signals.sort((a, b) => b.conf - a.conf);
+        const best = signals[0];
+        addAutoLog(`🎯 Best signal: ${best.sig} ${best.pair} (${best.conf}%)`);
+
+        // ── Check not already in this pair ───────────────────
+        const alreadyIn = openPos.some(p => p.symbol === best.pair);
+        if (alreadyIn) {
+          addAutoLog(`⚠️ Already have open position in ${best.pair} — skip`);
+          return;
+        }
+
+        // ── Execute trade ─────────────────────────────────────
+        const action = best.sig === "STRONG BUY" ? "buy" : "sell";
+        const r = await fetch(`${API}/order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            symbol:   best.pair,
+            action,
+            lot:      orderForm.lot,
+            sl_pips:  orderForm.sl,
+            tp_pips:  orderForm.tp,
+            comment:  `Auto-${botMode}`,
+          }),
+        });
+        const result = await r.json();
+        if (result.ticket) {
+          setLastTradeTime(Date.now());
+          addAutoLog(`✅ ${action.toUpperCase()} ${best.pair} @ ${result.price} #${result.ticket}`);
+          showToast(`⚡ AUTO: ${action.toUpperCase()} ${best.pair} @ ${result.price} — #${result.ticket}`);
+          fetchPositions();
+          fetchHistory();
+        } else {
+          addAutoLog(`❌ Order failed: ${result.detail}`);
+        }
+      } catch (e) {
+        addAutoLog(`❌ Error: ${e.message}`);
+      }
     };
-    autoRef.current = setInterval(run, 30000); // every 30s
+    run(); // run immediately on start
+    autoRef.current = setInterval(run, 30000);
     return () => clearInterval(autoRef.current);
-  }, [autoMode, symbol, timeframe]);
+  }, [autoMode, timeframe, botMode, orderForm, lastTradeTime]);
 
   // Initial + periodic refresh
   useEffect(() => {
@@ -716,6 +798,7 @@ export default function TradingDashboard() {
               padding: "10px 12px", borderRadius: 6,
               background: autoMode ? S.accent + "11" : S.card,
               border: `1px solid ${autoMode ? S.accent : S.border}`,
+              marginBottom: 10,
             }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: autoMode ? S.accent : S.muted,
                 marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>
@@ -723,10 +806,38 @@ export default function TradingDashboard() {
               </div>
               <div style={{ fontSize: 11, color: S.muted, lineHeight: 1.6 }}>
                 {autoMode
-                  ? `Scanning ${symbol} every 30s. Auto-executes on STRONG signals (≥60% confidence).`
+                  ? `Scanning all ${SCAN_PAIRS.length} pairs every 30s. Max ${MAX_POSITIONS} positions. ${COOLDOWN_HOURS}h cooldown.`
                   : "Toggle the switch in the header to enable auto trading on strong signals."}
               </div>
             </div>
+
+            {/* Bot selector */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              {[["bot1","Bot 1 Standard"],["bot2","Bot 2 + VP"]].map(([k,l]) => (
+                <button key={k} onClick={() => setBotMode(k)} style={{
+                  flex: 1, fontFamily: S.sans, fontSize: 11, fontWeight: 600,
+                  padding: "5px 0", borderRadius: 5, cursor: "pointer",
+                  background: botMode === k ? S.accent : S.card,
+                  color: botMode === k ? "#000" : S.muted,
+                  border: `1px solid ${botMode === k ? S.accent : S.border}`,
+                }}>{l}</button>
+              ))}
+            </div>
+
+            {/* Auto trade log */}
+            {autoMode && autoLog.length > 0 && (
+              <div style={{
+                background: S.bg, borderRadius: 5, padding: 8,
+                border: `1px solid ${S.border}`, maxHeight: 120, overflowY: "auto",
+              }}>
+                {autoLog.map((log, i) => (
+                  <div key={i} style={{
+                    fontFamily: S.mono, fontSize: 10, color: S.muted,
+                    padding: "1px 0", borderBottom: i < autoLog.length-1 ? `1px solid ${S.border}` : "none",
+                  }}>{log}</div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick stats */}
