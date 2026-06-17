@@ -402,6 +402,21 @@ export default function TradingDashboard(){
   const allPos=[...pos1,...pos2,...pos3];
   const allHist=[...hist1,...hist2,...hist3];
 
+  // Performance stats per strategy
+  const calcPerf=(hist)=>{
+    if(!hist.length)return{wins:0,losses:0,winRate:0,pnl:0,trades:0,best:0,worst:0,avgPips:0};
+    const wins=hist.filter(h=>h.profit>0).length;
+    const losses=hist.filter(h=>h.profit<=0).length;
+    const pnl=hist.reduce((s,h)=>s+(h.profit||0),0);
+    const best=Math.max(...hist.map(h=>h.profit||0));
+    const worst=Math.min(...hist.map(h=>h.profit||0));
+    const winRate=hist.length>0?Math.round(wins/hist.length*100):0;
+    return{wins,losses,winRate,pnl:parseFloat(pnl.toFixed(2)),trades:hist.length,best:parseFloat(best.toFixed(2)),worst:parseFloat(worst.toFixed(2))};
+  };
+  const perf1=calcPerf(hist1);
+  const perf2=calcPerf(hist2);
+  const perf3=calcPerf(hist3);
+
   return(
     <div style={{fontFamily:C.sans,background:C.bg,minHeight:"100vh",color:C.text,margin:0}}>
       {/* Topbar */}
@@ -516,13 +531,54 @@ export default function TradingDashboard(){
           )}
 
           {/* Combined Stats — All 3 Bots */}
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:12}}>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>Combined — All 3 Bots</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:14}}>
               {[["Total Positions",allPos.length],["Float P&L",fmtPnl(allPos.reduce((s,p)=>s+(p.profit||0),0)),allPos.reduce((s,p)=>s+(p.profit||0),0)>=0?C.buy:C.sell],["14d Trades",allHist.length],["14d P&L",fmtPnl(allHist.reduce((s,h)=>s+(h.profit||0),0)),allHist.reduce((s,h)=>s+(h.profit||0),0)>=0?C.buy:C.sell]].map(([lbl,val,col])=>(
                 <div key={lbl}>
                   <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{lbl}</div>
                   <div style={{fontFamily:C.mono,fontSize:15,fontWeight:700,color:col||C.text}}>{val}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Strategy Performance */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>📊 Strategy Performance (14d)</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:2,background:C.border,borderRadius:6,overflow:"hidden"}}>
+              {[
+                {label:"Bot 1 — Standard",color:C.accent,perf:perf1},
+                {label:"Bot 2 — Vol Profile",color:"#6366f1",perf:perf2},
+                {label:"Bot 3 — SNR Advance",color:C.csr,perf:perf3},
+              ].map(({label,color,perf})=>(
+                <div key={label} style={{background:C.card,padding:"10px 12px"}}>
+                  <div style={{fontSize:9,color:color,fontWeight:700,marginBottom:8,letterSpacing:0.5}}>{label}</div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+                    {[
+                      ["Trades",perf.trades,C.text],
+                      ["Win Rate",perf.trades>0?`${perf.winRate}%`:"—",perf.winRate>=50?C.buy:"#f87171"],
+                      ["Wins",perf.wins,C.buy],
+                      ["Losses",perf.losses,perf.losses>0?C.sell:C.muted],
+                    ].map(([l,v,c])=>(
+                      <div key={l}>
+                        <div style={{fontSize:8,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:2}}>{l}</div>
+                        <div style={{fontFamily:C.mono,fontSize:12,fontWeight:700,color:c}}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{borderTop:`1px solid ${C.border}`,paddingTop:8,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4}}>
+                    {[
+                      ["P&L",fmtPnl(perf.pnl),perf.pnl>=0?C.buy:C.sell],
+                      ["Best",perf.best>0?`+${perf.best}`:perf.best,C.buy],
+                      ["Worst",perf.worst,perf.worst<0?C.sell:C.muted],
+                    ].map(([l,v,c])=>(
+                      <div key={l}>
+                        <div style={{fontSize:8,color:C.muted,textTransform:"uppercase",letterSpacing:0.8,marginBottom:2}}>{l}</div>
+                        <div style={{fontFamily:C.mono,fontSize:11,fontWeight:700,color:c}}>{v}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
