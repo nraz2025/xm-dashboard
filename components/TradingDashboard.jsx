@@ -13,6 +13,7 @@ const C = {
   bg:"#080c14",panel:"#0d1320",card:"#111827",border:"#1a2438",
   accent:"#f59e0b",buy:"#10b981",sell:"#ef4444",muted:"#4b5563",
   dim:"#6b7280",text:"#e2e8f0",csr:"#8b5cf6", // purple for Bot 3
+  csr2:"#06b6d4", // cyan for Bot 4 (CSR100 v2)
   mono:"'JetBrains Mono','Fira Code','Courier New',monospace",
   sans:"'Inter',system-ui,sans-serif",
 };
@@ -43,13 +44,15 @@ function Pill({label}){
 }
 
 // ── Bot Panel (reusable) ──────────────────────────────────────────────────
-function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot3}){
+function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot3,isBot4,liveSignal}){
   const totalPnl=positions.reduce((s,p)=>s+(p.profit||0),0);
   const histPnl=history.reduce((s,h)=>s+(h.profit||0),0);
   const [tab,setTab]=useState("positions");
 
   const modeOptions = isBot3
     ? [["snrA","Mode A (H4+M15)"],["snrB","Mode B (D1+H1)"]]
+    : isBot4
+    ? [["retest2","Min 2nd Retest"],["retest3","Min 3rd Retest"]]
     : [["bot1","Standard"],["bot2","+ Vol Profile"]];
 
   return(
@@ -101,6 +104,35 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
             <div style={{fontSize:10,color:C.csr,fontWeight:700,marginBottom:3}}>⚡ SNR Advance Strategy</div>
             <div style={{fontSize:9,color:C.muted}}>Magic: 33333 · Account 2 · Engulfing CRS @ SNR Zone</div>
             <div style={{fontSize:9,color:C.muted,marginTop:2}}>Mode A: H4 trend + M15 entry · Mode B: Daily + H1</div>
+          </div>
+        )}
+
+        {/* Bot 4 Info Banner */}
+        {isBot4&&(
+          <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`,background:C.csr2+"11",border:`1px solid ${C.csr2}33`}}>
+            <div style={{fontSize:10,color:C.csr2,fontWeight:700,marginBottom:3}}>🎯 TEKNIK CSR100 v2</div>
+            <div style={{fontSize:9,color:C.muted}}>Magic: 44444 · Account 3 · Pure Price Action — NO indicators</div>
+            <div style={{fontSize:9,color:C.muted,marginTop:2}}>SBR/RBS zone + retest counting · Trade-with-trend only</div>
+            {liveSignal&&(
+              <div style={{marginTop:6,paddingTop:6,borderTop:`1px solid ${C.csr2}33`,display:"flex",flexDirection:"column",gap:3}}>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:9,color:C.muted}}>Trend</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:C.text}}>{liveSignal.trend||"—"}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:9,color:C.muted}}>Zone Role</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:C.text}}>{liveSignal.zone?.role||"—"}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:9,color:C.muted}}>Retest Count</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:(liveSignal.retest_count||0)>=2?C.buy:C.dim}}>{liveSignal.retest_count??"—"}</span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between"}}>
+                  <span style={{fontSize:9,color:C.muted}}>Valid Setup</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:liveSignal.valid_setup?C.buy:C.dim}}>{liveSignal.valid_setup?"YES":"NO"}</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -227,27 +259,36 @@ export default function TradingDashboard(){
   // Per-bot state
   const [acc1,setAcc1]=useState(null);
   const [acc2,setAcc2]=useState(null);
+  const [acc3,setAcc3]=useState(null); // Bot 4 — dedicated account
   const [pos1,setPos1]=useState([]);
   const [pos2,setPos2]=useState([]);
   const [pos3,setPos3]=useState([]); // Bot 3 shares account 2 positions filtered by magic
+  const [pos4,setPos4]=useState([]); // Bot 4 — own account, no magic filter needed
   const [hist1,setHist1]=useState([]);
   const [hist2,setHist2]=useState([]);
   const [hist3,setHist3]=useState([]);
+  const [hist4,setHist4]=useState([]);
   const [auto1,setAuto1]=useState(true);
   const [auto2,setAuto2]=useState(true);
   const [auto3,setAuto3]=useState(true); // SNR Advance ready
+  const [auto4,setAuto4]=useState(false); // Bot 4 — default OFF until verified live
   const [bot1Mode,setBot1Mode]=useState("bot1");
   const [bot2Mode,setBot2Mode]=useState("bot2");
   const [bot3Mode,setBot3Mode]=useState("snrA");
+  const [bot4Mode,setBot4Mode]=useState("retest2");
   const [log1,setLog1]=useState([]);
   const [log2,setLog2]=useState([]);
   const [log3,setLog3]=useState([]);
+  const [log4,setLog4]=useState([]);
   const [last1,setLast1]=useState(null);
   const [last2,setLast2]=useState(null);
   const [last3,setLast3]=useState(null);
+  const [last4,setLast4]=useState(null);
+  const [bot4Signal,setBot4Signal]=useState(null); // live signal info for Bot 4 banner
   const autoRef1=useRef(null);
   const autoRef2=useRef(null);
   const autoRef3=useRef(null);
+  const autoRef4=useRef(null);
 
   const addLog=(setter,msg)=>{
     const t=new Date().toLocaleTimeString("en-MY",{hour12:false});
@@ -257,15 +298,16 @@ export default function TradingDashboard(){
 
   const fetchAcc=useCallback(async()=>{
     try{
-      const[r1,r2]=await Promise.all([fetch(`${API}/account?acc=1`),fetch(`${API}/account?acc=2`)]);
+      const[r1,r2,r3]=await Promise.all([fetch(`${API}/account?acc=1`),fetch(`${API}/account?acc=2`),fetch(`${API}/account?acc=3`)]);
       if(r1.ok)setAcc1(await r1.json());
       if(r2.ok)setAcc2(await r2.json());
+      if(r3.ok)setAcc3(await r3.json());
     }catch{}
   },[]);
 
   const fetchPos=useCallback(async()=>{
     try{
-      const[r1,r2]=await Promise.all([fetch(`${API}/positions?account=1`),fetch(`${API}/positions?account=2`)]);
+      const[r1,r2,r3]=await Promise.all([fetch(`${API}/positions?account=1`),fetch(`${API}/positions?account=2`),fetch(`${API}/positions?account=3`)]);
       if(r1.ok)setPos1(await r1.json());
       if(r2.ok){
         const all=await r2.json();
@@ -273,18 +315,20 @@ export default function TradingDashboard(){
         setPos2(all.filter(p=>!p.magic||p.magic===22222));
         setPos3(all.filter(p=>p.magic===33333));
       }
+      if(r3.ok)setPos4(await r3.json()); // Bot 4 has its own account, no filter needed
     }catch{}
   },[]);
 
   const fetchHist=useCallback(async()=>{
     try{
-      const[r1,r2]=await Promise.all([fetch(`${API}/history?days=14&account=1`),fetch(`${API}/history?days=14&account=2`)]);
+      const[r1,r2,r3]=await Promise.all([fetch(`${API}/history?days=14&account=1`),fetch(`${API}/history?days=14&account=2`),fetch(`${API}/history?days=14&account=3`)]);
       if(r1.ok)setHist1(await r1.json());
       if(r2.ok){
         const all=await r2.json();
         setHist2(all.filter(h=>!h.magic||h.magic===22222));
         setHist3(all.filter(h=>h.magic===33333));
       }
+      if(r3.ok)setHist4(await r3.json());
     }catch{}
   },[]);
 
@@ -302,6 +346,15 @@ export default function TradingDashboard(){
     }catch{}
   },[symbol,timeframe]);
 
+  // Fetch Bot 4 live signal for the currently selected symbol (for the info banner)
+  const fetchBot4Signal=useCallback(async(sym=symbol,tf=timeframe,mode=bot4Mode)=>{
+    const minRetest=mode==="retest3"?3:2;
+    try{
+      const r=await fetch(`${API}/analyze-csr100v2/${sym}?tf=${tf}&min_retest=${minRetest}`);
+      if(r.ok)setBot4Signal(await r.json());
+    }catch{}
+  },[symbol,timeframe,bot4Mode]);
+
   const makeAutoRun=(botId,bMode,positions,lastTime,setLast,addLogFn,magic)=>async()=>{
     if(positions.length>=MAX_POS){addLogFn(`⏸ Max ${MAX_POS} positions reached`);return;}
     if(lastTime&&Date.now()-lastTime<COOLDOWN_MS){
@@ -309,6 +362,43 @@ export default function TradingDashboard(){
       addLogFn(`⏳ Cooldown: ${rem}min remaining`);return;
     }
     addLogFn(`🔍 Scanning ${SCAN_PAIRS.length} pairs...`);
+
+    // Bot 4 (CSR100 v2) needs its own scan logic since it returns
+    // valid_setup/direction instead of signal.direction/confidence like
+    // the other bots' /analyze* endpoints.
+    if(botId===4){
+      const minRetest=bMode==="retest3"?3:2;
+      const candidates=[];
+      for(const pair of SCAN_PAIRS){
+        try{
+          const r=await fetch(`${API}/analyze-csr100v2/${pair}?tf=${timeframe}&min_retest=${minRetest}`);
+          if(!r.ok)continue;
+          const data=await r.json();
+          if(data.valid_setup&&data.direction){
+            candidates.push({pair,direction:data.direction,retest:data.retest_count,confidence:data.confidence||0});
+          }
+        }catch{}
+      }
+      if(!candidates.length){addLogFn("😴 No valid CSR100 setup");return;}
+      candidates.sort((a,b)=>b.confidence-a.confidence);
+      const best=candidates[0];
+      addLogFn(`🎯 ${best.direction} ${best.pair} (retest ${best.retest}, conf ${best.confidence}%)`);
+      if(positions.some(p=>p.symbol===best.pair)){addLogFn(`⚠️ Already in ${best.pair}`);return;}
+      const action=best.direction==="BUY"?"buy":"sell";
+      try{
+        const r=await fetch(`${API}/order`,{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({symbol:best.pair,action,lot:orderForm.lot,sl_pips:orderForm.sl,tp_pips:orderForm.tp,comment:`Auto-Bot4`,account:3,magic:44444})});
+        const res=await r.json();
+        if(res.ticket){
+          setLast(Date.now());
+          addLogFn(`✅ ${action.toUpperCase()} ${best.pair} @${res.price} #${res.ticket}`);
+          showToast(`⚡ Bot4: ${action.toUpperCase()} ${best.pair} — #${res.ticket}`);
+          fetchPos();fetchHist();
+        }else{addLogFn(`❌ ${res.detail||"Order failed"}`);}
+      }catch(e){addLogFn(`❌ Error: ${e.message}`);}
+      return;
+    }
+
     const endpoint=bMode==="bot2"?"analyze-vp":bMode==="snrA"?"analyze-snr":bMode==="snrB"?"analyze-snr":"analyze";
     const modeParam=bMode==="snrA"?"?mode=A&":bMode==="snrB"?"?mode=B&":"?";
     const signals=[];
@@ -365,19 +455,28 @@ export default function TradingDashboard(){
   },[auto3,bot3Mode,pos3,last3,timeframe,orderForm]);
 
   useEffect(()=>{
-    fetchAcc();fetchPos();fetchHist();fetchScan();fetchAnalysis();
+    if(!auto4){clearInterval(autoRef4.current);return;}
+    const run=makeAutoRun(4,bot4Mode,pos4,last4,setLast4,(msg)=>addLog(setLog4,msg),44444);
+    run();autoRef4.current=setInterval(run,30000);
+    return()=>clearInterval(autoRef4.current);
+  },[auto4,bot4Mode,pos4,last4,timeframe,orderForm]);
+
+  useEffect(()=>{
+    fetchAcc();fetchPos();fetchHist();fetchScan();fetchAnalysis();fetchBot4Signal();
     const t=setInterval(()=>{fetchAcc();fetchPos();},10000);
     const s=setInterval(()=>{fetchScan();},60000);
-    return()=>{clearInterval(t);clearInterval(s);};
+    const b4=setInterval(()=>{fetchBot4Signal();},30000);
+    return()=>{clearInterval(t);clearInterval(s);clearInterval(b4);};
   },[]);
 
-  useEffect(()=>{fetchAnalysis();},[symbol,timeframe]);
+  useEffect(()=>{fetchAnalysis();fetchBot4Signal();},[symbol,timeframe]);
   useEffect(()=>{fetchScan();},[timeframe]);
+  useEffect(()=>{fetchBot4Signal();},[bot4Mode]);
 
   const placeOrder=async(action,botId)=>{
     setLoadOrder(true);
-    const accountId=botId===1?1:2;
-    const magic=botId===1?11111:botId===2?22222:33333;
+    const accountId=botId===1?1:botId===4?3:2;
+    const magic=botId===1?11111:botId===2?22222:botId===4?44444:33333;
     try{
       const r=await fetch(`${API}/order`,{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({symbol,action,lot:orderForm.lot,sl_pips:orderForm.sl,tp_pips:orderForm.tp,comment:`Manual-Bot${botId}`,account:accountId,magic})});
@@ -389,7 +488,7 @@ export default function TradingDashboard(){
   };
 
   const closePos=async(ticket,botId)=>{
-    const accountId=botId===1?1:2;
+    const accountId=botId===1?1:botId===4?3:2;
     try{
       const r=await fetch(`${API}/close`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticket,account:accountId})});
       const d=await r.json();
@@ -401,8 +500,8 @@ export default function TradingDashboard(){
   const ind=analysis?.indicators;
   const prices=Array.isArray(candles)?candles.map(c=>c.close):[];
   const connected=acc1!==null;
-  const allPos=[...pos1,...pos2,...pos3];
-  const allHist=[...hist1,...hist2,...hist3];
+  const allPos=[...pos1,...pos2,...pos3,...pos4];
+  const allHist=[...hist1,...hist2,...hist3,...hist4];
 
   // Performance stats per strategy
   const calcPerf=(hist)=>{
@@ -418,6 +517,7 @@ export default function TradingDashboard(){
   const perf1=calcPerf(hist1);
   const perf2=calcPerf(hist2);
   const perf3=calcPerf(hist3);
+  const perf4=calcPerf(hist4);
 
   // Daily P&L snapshot — save to localStorage every time history updates
   useEffect(()=>{
@@ -452,7 +552,7 @@ export default function TradingDashboard(){
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:26,height:26,borderRadius:5,background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:"#000"}}>X</div>
           <span style={{fontWeight:700,fontSize:14,letterSpacing:0.3}}>XM Trading</span>
-          <span style={{fontSize:10,color:C.muted,background:C.card,border:`1px solid ${C.border}`,padding:"2px 8px",borderRadius:3}}>Triple Bot v3</span>
+          <span style={{fontSize:10,color:C.muted,background:C.card,border:`1px solid ${C.border}`,padding:"2px 8px",borderRadius:3}}>Quad Bot v4</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           <div style={{width:7,height:7,borderRadius:"50%",background:connected?C.buy:C.sell,boxShadow:connected?`0 0 6px ${C.buy}`:"none"}}/>
@@ -465,8 +565,8 @@ export default function TradingDashboard(){
         </div>
       </div>
 
-      {/* Main Grid: Scanner | Center | Bot1 | Bot2 | Bot3 */}
-      <div style={{display:"grid",gridTemplateColumns:"180px 1fr 260px 260px 260px",height:"calc(100vh - 48px)",overflow:"hidden"}}>
+      {/* Main Grid: Scanner | Center | Bot1 | Bot2 | Bot3 | Bot4 */}
+      <div style={{display:"grid",gridTemplateColumns:"160px 1fr 240px 240px 240px 240px",height:"calc(100vh - 48px)",overflow:"hidden"}}>
 
         {/* Scanner */}
         <div style={{background:C.panel,borderRight:`1px solid ${C.border}`,overflowY:"auto",display:"flex",flexDirection:"column"}}>
@@ -475,7 +575,7 @@ export default function TradingDashboard(){
             {loadScan&&<span style={{fontSize:9,color:C.dim}}>updating...</span>}
           </div>
           {scan.map(row=>(
-            <div key={row.symbol} onClick={()=>{setSymbol(row.symbol);fetchAnalysis(row.symbol,timeframe);}}
+            <div key={row.symbol} onClick={()=>{setSymbol(row.symbol);fetchAnalysis(row.symbol,timeframe);fetchBot4Signal(row.symbol,timeframe);}}
               style={{padding:"9px 14px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,background:symbol===row.symbol?C.card:"transparent",transition:"background .1s"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
                 <span style={{fontFamily:C.mono,fontSize:12,fontWeight:700,color:symbol===row.symbol?C.accent:C.text}}>{row.symbol}</span>
@@ -495,13 +595,13 @@ export default function TradingDashboard(){
         {/* Center: Chart + Analysis */}
         <div style={{overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
-            <select value={symbol} onChange={e=>{setSymbol(e.target.value);fetchAnalysis(e.target.value,timeframe);}}
+            <select value={symbol} onChange={e=>{setSymbol(e.target.value);fetchAnalysis(e.target.value,timeframe);fetchBot4Signal(e.target.value,timeframe);}}
               style={{fontFamily:C.mono,fontSize:13,fontWeight:700,background:C.card,color:C.text,border:`1px solid ${C.border}`,borderRadius:5,padding:"5px 10px",cursor:"pointer"}}>
               {SCAN_PAIRS.map(p=><option key={p}>{p}</option>)}
             </select>
             <div style={{display:"flex",gap:3}}>
               {TIMEFRAMES.map(tf=>(
-                <button key={tf} onClick={()=>{setTF(tf);fetchAnalysis(symbol,tf);}} style={{fontFamily:C.mono,fontSize:10,padding:"4px 8px",background:timeframe===tf?C.accent:C.card,color:timeframe===tf?"#000":C.dim,border:`1px solid ${timeframe===tf?C.accent:C.border}`,borderRadius:4,cursor:"pointer",fontWeight:700}}>{tf}</button>
+                <button key={tf} onClick={()=>{setTF(tf);fetchAnalysis(symbol,tf);fetchBot4Signal(symbol,tf);}} style={{fontFamily:C.mono,fontSize:10,padding:"4px 8px",background:timeframe===tf?C.accent:C.card,color:timeframe===tf?"#000":C.dim,border:`1px solid ${timeframe===tf?C.accent:C.border}`,borderRadius:4,cursor:"pointer",fontWeight:700}}>{tf}</button>
               ))}
             </div>
           </div>
@@ -558,9 +658,9 @@ export default function TradingDashboard(){
             </div>
           )}
 
-          {/* Combined Stats — All 3 Bots */}
+          {/* Combined Stats — All 4 Bots */}
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:12}}>
-            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>Combined — All 3 Bots</div>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>Combined — All 4 Bots</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:14}}>
               {[["Total Positions",allPos.length],["Float P&L",fmtPnl(allPos.reduce((s,p)=>s+(p.profit||0),0)),allPos.reduce((s,p)=>s+(p.profit||0),0)>=0?C.buy:C.sell],["14d Trades",allHist.length],["14d P&L",fmtPnl(allHist.reduce((s,h)=>s+(h.profit||0),0)),allHist.reduce((s,h)=>s+(h.profit||0),0)>=0?C.buy:C.sell]].map(([lbl,val,col])=>(
                 <div key={lbl}>
@@ -574,11 +674,12 @@ export default function TradingDashboard(){
           {/* Strategy Performance */}
           <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>📊 Strategy Performance (14d)</div>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:2,background:C.border,borderRadius:6,overflow:"hidden"}}>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:2,background:C.border,borderRadius:6,overflow:"hidden"}}>
               {[
                 {label:"Bot 1 — Standard",color:C.accent,perf:perf1},
                 {label:"Bot 2 — Vol Profile",color:"#6366f1",perf:perf2},
                 {label:"Bot 3 — SNR Advance",color:C.csr,perf:perf3},
+                {label:"Bot 4 — CSR100 v2",color:C.csr2,perf:perf4},
               ].map(({label,color,perf})=>(
                 <div key={label} style={{background:C.card,padding:"10px 12px"}}>
                   <div style={{fontSize:9,color:color,fontWeight:700,marginBottom:8,letterSpacing:0.5}}>{label}</div>
@@ -670,6 +771,15 @@ export default function TradingDashboard(){
           botMode={bot3Mode} onBotMode={setBot3Mode}
           orderForm={orderForm} setOrderForm={setOrderForm}
           symbol={symbol} onPlaceOrder={placeOrder} onClosePos={closePos} loading={loadOrder}/>
+
+        {/* Bot 4 Panel — CSR100 v2 (pure price action) */}
+        <BotPanel botId={4} botName="Bot 4 — CSR100 v2" botColor={C.csr2} isBot4={true}
+          account={acc3} positions={pos4} history={hist4} autoLog={log4}
+          autoMode={auto4} onToggleAuto={()=>setAuto4(p=>!p)}
+          botMode={bot4Mode} onBotMode={setBot4Mode}
+          orderForm={orderForm} setOrderForm={setOrderForm}
+          symbol={symbol} onPlaceOrder={placeOrder} onClosePos={closePos} loading={loadOrder}
+          liveSignal={bot4Signal}/>
       </div>
 
       {toast&&(
