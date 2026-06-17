@@ -221,6 +221,8 @@ export default function TradingDashboard(){
   const [toast,setToast]=useState(null);
   const [loadOrder,setLoadOrder]=useState(false);
   const [loadScan,setLoadScan]=useState(false);
+  const [dailyPnl,setDailyPnl]=useState([]);
+  const [showDailyPnl,setShowDailyPnl]=useState(false);
 
   // Per-bot state
   const [acc1,setAcc1]=useState(null);
@@ -417,6 +419,32 @@ export default function TradingDashboard(){
   const perf2=calcPerf(hist2);
   const perf3=calcPerf(hist3);
 
+  // Daily P&L snapshot — save to localStorage every time history updates
+  useEffect(()=>{
+    if(!allHist.length)return;
+    const today=new Date().toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"numeric"});
+    const todayPnl=allHist
+      .filter(h=>{
+        const d=new Date(h.close_time*1000||h.time*1000||Date.now());
+        return d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"numeric"})===today;
+      })
+      .reduce((s,h)=>s+(h.profit||0),0);
+
+    const stored=JSON.parse(localStorage.getItem("xm_daily_pnl")||"[]");
+    const exists=stored.findIndex(x=>x.date===today);
+    if(exists>=0){stored[exists].pnl=parseFloat(todayPnl.toFixed(2));}
+    else{stored.unshift({date:today,pnl:parseFloat(todayPnl.toFixed(2))});}
+    const trimmed=stored.slice(0,30); // keep 30 days
+    localStorage.setItem("xm_daily_pnl",JSON.stringify(trimmed));
+    setDailyPnl(trimmed);
+  },[allHist]);
+
+  // Load daily PnL from localStorage on mount
+  useEffect(()=>{
+    const stored=JSON.parse(localStorage.getItem("xm_daily_pnl")||"[]");
+    setDailyPnl(stored);
+  },[]);
+
   return(
     <div style={{fontFamily:C.sans,background:C.bg,minHeight:"100vh",color:C.text,margin:0}}>
       {/* Topbar */}
@@ -582,6 +610,40 @@ export default function TradingDashboard(){
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* Daily P&L Tracker */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginTop:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showDailyPnl?12:0}}>
+              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,fontWeight:600}}>📅 Daily P&L Tracker</div>
+              <button onClick={()=>setShowDailyPnl(p=>!p)} style={{fontFamily:C.mono,fontSize:9,padding:"2px 8px",background:"transparent",color:C.muted,border:`1px solid ${C.border}`,borderRadius:3,cursor:"pointer"}}>{showDailyPnl?"HIDE":"SHOW"}</button>
+            </div>
+            {showDailyPnl&&(
+              dailyPnl.length===0?(
+                <div style={{fontSize:11,color:C.muted,textAlign:"center",padding:"10px 0"}}>No data yet — trades will be recorded here daily</div>
+              ):(
+                <div style={{maxHeight:200,overflowY:"auto"}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:0,marginBottom:6}}>
+                    {["Date","P&L","Status"].map(h=>(
+                      <div key={h} style={{fontSize:8,color:C.muted,textTransform:"uppercase",letterSpacing:1,padding:"4px 6px",borderBottom:`1px solid ${C.border}`}}>{h}</div>
+                    ))}
+                  </div>
+                  {dailyPnl.map((d,i)=>(
+                    <div key={i} style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:0,borderBottom:`1px solid ${C.border}`,padding:"5px 0"}}>
+                      <div style={{fontFamily:C.mono,fontSize:10,color:C.text,padding:"0 6px"}}>{d.date}</div>
+                      <div style={{fontFamily:C.mono,fontSize:10,fontWeight:700,color:d.pnl>=0?C.buy:C.sell,padding:"0 6px"}}>{d.pnl>=0?"+":""}{d.pnl}</div>
+                      <div style={{padding:"0 6px"}}>
+                        <span style={{fontSize:9,fontWeight:700,color:d.pnl>=0?C.buy:C.sell,background:(d.pnl>=0?C.buy:C.sell)+"22",padding:"1px 6px",borderRadius:3}}>{d.pnl>=0?"PROFIT":"LOSS"}</span>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:9,color:C.muted}}>Total ({dailyPnl.length} days)</span>
+                    <span style={{fontFamily:C.mono,fontSize:11,fontWeight:700,color:dailyPnl.reduce((s,d)=>s+d.pnl,0)>=0?C.buy:C.sell}}>{fmtPnl(dailyPnl.reduce((s,d)=>s+d.pnl,0))}</span>
+                  </div>
+                </div>
+              )
+            )}
           </div>
         </div>
 
