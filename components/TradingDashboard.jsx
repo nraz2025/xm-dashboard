@@ -260,9 +260,10 @@ export default function TradingDashboard(){
   const [showDailyPnl,setShowDailyPnl]=useState(false);
 
   // Per-bot state
-  const [acc1,setAcc1]=useState(null);
-  const [acc2,setAcc2]=useState(null);
-  const [acc3,setAcc3]=useState(null); // Bot 4 — dedicated account
+  const [acc1,setAcc1]=useState(null); // Bot 1
+  const [acc2,setAcc2]=useState(null); // Bot 2 — now its own dedicated account (345599137)
+  const [acc3,setAcc3]=useState(null); // Bot 3 — account 2 in backend (168865742), no longer shared with Bot 2
+  const [acc4,setAcc4]=useState(null); // Bot 4 — account 3 in backend (1301627547)
   const [pos1,setPos1]=useState([]);
   const [pos2,setPos2]=useState([]);
   const [pos3,setPos3]=useState([]); // Bot 3 shares account 2 positions filtered by magic
@@ -294,37 +295,41 @@ export default function TradingDashboard(){
 
   const fetchAcc=useCallback(async()=>{
     try{
-      const[r1,r2,r3]=await Promise.all([fetch(`${API}/account?acc=1`),fetch(`${API}/account?acc=2`),fetch(`${API}/account?acc=3`)]);
+      const[r1,r2,r3,r4]=await Promise.all([fetch(`${API}/account?acc=1`),fetch(`${API}/account?acc=2`),fetch(`${API}/account?acc=3`),fetch(`${API}/account?acc=4`)]);
       if(r1.ok)setAcc1(await r1.json());
-      if(r2.ok)setAcc2(await r2.json());
-      if(r3.ok)setAcc3(await r3.json());
+      if(r2.ok)setAcc3(await r2.json()); // ACCOUNTS[2] in backend = Bot 3's account
+      if(r3.ok)setAcc4(await r3.json()); // ACCOUNTS[3] in backend = Bot 4's account
+      if(r4.ok)setAcc2(await r4.json()); // ACCOUNTS[4] in backend = Bot 2's NEW dedicated account
     }catch{}
   },[]);
 
   const fetchPos=useCallback(async()=>{
     try{
-      const[r1,r2,r3]=await Promise.all([fetch(`${API}/positions?account=1`),fetch(`${API}/positions?account=2`),fetch(`${API}/positions?account=3`)]);
+      const[r1,r2,r3,r4]=await Promise.all([
+        fetch(`${API}/positions?account=1`),  // Bot 1
+        fetch(`${API}/positions?account=2`),  // Bot 3 (no longer shared with Bot 2)
+        fetch(`${API}/positions?account=3`),  // Bot 4
+        fetch(`${API}/positions?account=4`),  // Bot 2's new dedicated account
+      ]);
       if(r1.ok)setPos1(await r1.json());
-      if(r2.ok){
-        const all=await r2.json();
-        // Filter by magic number
-        setPos2(all.filter(p=>!p.magic||p.magic===22222));
-        setPos3(all.filter(p=>p.magic===33333));
-      }
-      if(r3.ok)setPos4(await r3.json()); // Bot 4 has its own account, no filter needed
+      if(r2.ok)setPos3(await r2.json()); // Bot 3 has the account to itself now, no magic filter needed
+      if(r3.ok)setPos4(await r3.json());
+      if(r4.ok)setPos2(await r4.json()); // Bot 2 has its own account now too
     }catch{}
   },[]);
 
   const fetchHist=useCallback(async()=>{
     try{
-      const[r1,r2,r3]=await Promise.all([fetch(`${API}/history?days=14&account=1`),fetch(`${API}/history?days=14&account=2`),fetch(`${API}/history?days=14&account=3`)]);
+      const[r1,r2,r3,r4]=await Promise.all([
+        fetch(`${API}/history?days=14&account=1`),
+        fetch(`${API}/history?days=14&account=2`),
+        fetch(`${API}/history?days=14&account=3`),
+        fetch(`${API}/history?days=14&account=4`),
+      ]);
       if(r1.ok)setHist1(await r1.json());
-      if(r2.ok){
-        const all=await r2.json();
-        setHist2(all.filter(h=>!h.magic||h.magic===22222));
-        setHist3(all.filter(h=>h.magic===33333));
-      }
+      if(r2.ok)setHist3(await r2.json());
       if(r3.ok)setHist4(await r3.json());
+      if(r4.ok)setHist2(await r4.json());
     }catch{}
   },[]);
 
@@ -407,7 +412,7 @@ export default function TradingDashboard(){
 
   const placeOrder=async(action,botId)=>{
     setLoadOrder(true);
-    const accountId=botId===1?1:botId===4?3:2;
+    const accountId=botId===1?1:botId===2?4:botId===4?3:2; // Bot1->1, Bot2->4(new), Bot3->2, Bot4->3
     const magic=botId===1?11111:botId===2?22222:botId===4?44444:33333;
     try{
       const r=await fetch(`${API}/order`,{method:"POST",headers:{"Content-Type":"application/json"},
@@ -420,7 +425,7 @@ export default function TradingDashboard(){
   };
 
   const closePos=async(ticket,botId)=>{
-    const accountId=botId===1?1:botId===4?3:2;
+    const accountId=botId===1?1:botId===2?4:botId===4?3:2; // same mapping as placeOrder
     try{
       const r=await fetch(`${API}/close`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ticket,account:accountId})});
       const d=await r.json();
@@ -451,13 +456,31 @@ export default function TradingDashboard(){
   const perf3=calcPerf(hist3);
   const perf4=calcPerf(hist4);
 
-  // Daily P&L snapshot — save to localStorage every time history updates
+  // Daily P&L snapshot — save to localStorage every time history updates.
+  //
+  // BUGFIX (20 Jun 2026): h.time from mt5_service.py's get_history_with_creds()
+  // is a "YYYY-MM-DD HH:MM:SS" STRING (via to_my_time()), not a Unix timestamp.
+  // The old code did `h.close_time*1000 || h.time*1000 || Date.now()` — but
+  // close_time doesn't exist on this object at all, and a string times 1000
+  // evaluates to NaN in JS, which is falsy — so BOTH terms failed silently
+  // and every single trade fell through to Date.now(), meaning "today's P&L"
+  // was silently computed as the FULL 14-day history total, every day. That's
+  // why two different days showed the exact same P&L figure. Fix: parse the
+  // "YYYY-MM-DD HH:MM:SS" string directly (replace the space with "T" so the
+  // JS Date constructor parses it reliably across browsers).
+  const parseHistTime = (timeStr) => {
+    if(!timeStr) return new Date(); // last-resort fallback, but should rarely hit
+    const iso = timeStr.includes("T") ? timeStr : timeStr.replace(" ", "T");
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? new Date() : d;
+  };
+
   useEffect(()=>{
     if(!allHist.length)return;
     const today=new Date().toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"numeric"});
     const todayPnl=allHist
       .filter(h=>{
-        const d=new Date(h.close_time*1000||h.time*1000||Date.now());
+        const d=parseHistTime(h.time);
         return d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"numeric"})===today;
       })
       .reduce((s,h)=>s+(h.profit||0),0);
@@ -487,13 +510,64 @@ export default function TradingDashboard(){
     showToast("Daily P&L Tracker reset");
   };
 
+  // Recalculate the Daily P&L Tracker from REAL MT5 history, fixing any
+  // past entries that were corrupted by the close_time/Date.now() bug
+  // (every trade was mis-dated as "today", so every day showed the same
+  // full-history total instead of that day's actual P&L). This re-fetches
+  // 30 days of history across all 4 bot accounts, groups it by the
+  // correct date using parseHistTime(), and overwrites localStorage with
+  // the accurate per-day figures.
+  const [recalculating,setRecalculating]=useState(false);
+  const recalculateDailyPnl=async()=>{
+    if(!window.confirm("Recalculate Daily P&L from real MT5 history? This will replace the existing daily figures with correct ones (fixes the bug where every day showed the same total)."))return;
+    setRecalculating(true);
+    try{
+      const[r1,r2,r3,r4]=await Promise.all([
+        fetch(`${API}/history?days=30&account=1`),
+        fetch(`${API}/history?days=30&account=2`),
+        fetch(`${API}/history?days=30&account=3`),
+        fetch(`${API}/history?days=30&account=4`),
+      ]);
+      const h1=r1.ok?await r1.json():[];
+      const h2all=r2.ok?await r2.json():[];
+      const h3=r3.ok?await r3.json():[];
+      const h4=r4.ok?await r4.json():[];
+      const allRealHist=[...h1,...h2all,...h3,...h4];
+
+      if(!allRealHist.length){
+        showToast("No history found to recalculate from","err");
+        setRecalculating(false);
+        return;
+      }
+
+      const byDay={};
+      allRealHist.forEach(h=>{
+        const d=parseHistTime(h.time);
+        const key=d.toLocaleDateString("en-MY",{day:"2-digit",month:"short",year:"numeric"});
+        byDay[key]=(byDay[key]||0)+(h.profit||0);
+      });
+
+      const rebuilt=Object.entries(byDay)
+        .map(([date,pnl])=>({date,pnl:parseFloat(pnl.toFixed(2))}))
+        .sort((a,b)=>new Date(b.date)-new Date(a.date)) // newest first
+        .slice(0,30);
+
+      localStorage.setItem("xm_daily_pnl",JSON.stringify(rebuilt));
+      setDailyPnl(rebuilt);
+      showToast(`Recalculated ${rebuilt.length} day(s) from real history`);
+    }catch(e){
+      showToast("Recalculate failed: "+e.message,"err");
+    }
+    setRecalculating(false);
+  };
+
   const [activeBot,setActiveBot]=useState(1);
 
   const botConfigs=[
     {id:1,name:"Bot 1",color:C.accent,account:acc1,positions:pos1,history:hist1,auto:auto1,setAuto:setAuto1,mode:bot1Mode,setMode:setBot1Mode},
     {id:2,name:"Bot 2",color:"#6366f1",account:acc2,positions:pos2,history:hist2,auto:auto2,setAuto:setAuto2,mode:bot2Mode,setMode:setBot2Mode},
-    {id:3,name:"Bot 3",color:C.csr,account:acc2,positions:pos3,history:hist3,auto:auto3,setAuto:setAuto3,mode:bot3Mode,setMode:setBot3Mode,isBot3:true},
-    {id:4,name:"Bot 4",color:C.csr2,account:acc3,positions:pos4,history:hist4,auto:auto4,setAuto:setAuto4,mode:bot4Mode,setMode:setBot4Mode,isBot4:true,liveSignal:bot4Signal},
+    {id:3,name:"Bot 3",color:C.csr,account:acc3,positions:pos3,history:hist3,auto:auto3,setAuto:setAuto3,mode:bot3Mode,setMode:setBot3Mode,isBot3:true},
+    {id:4,name:"Bot 4",color:C.csr2,account:acc4,positions:pos4,history:hist4,auto:auto4,setAuto:setAuto4,mode:bot4Mode,setMode:setBot4Mode,isBot4:true,liveSignal:bot4Signal},
   ];
   const activeCfg=botConfigs.find(b=>b.id===activeBot)||botConfigs[0];
 
@@ -667,6 +741,7 @@ export default function TradingDashboard(){
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showDailyPnl?12:0}}>
               <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,fontWeight:600}}>📅 Daily P&L Tracker</div>
               <div style={{display:"flex",gap:6}}>
+                <button onClick={recalculateDailyPnl} disabled={recalculating} style={{fontFamily:C.mono,fontSize:9,padding:"2px 8px",background:"transparent",color:recalculating?C.muted:C.buy,border:`1px solid ${recalculating?C.border:C.buy}44`,borderRadius:3,cursor:recalculating?"not-allowed":"pointer"}}>{recalculating?"...":"RECALCULATE"}</button>
                 <button onClick={resetDailyPnl} style={{fontFamily:C.mono,fontSize:9,padding:"2px 8px",background:"transparent",color:C.sell,border:`1px solid ${C.sell}44`,borderRadius:3,cursor:"pointer"}}>RESET</button>
                 <button onClick={()=>setShowDailyPnl(p=>!p)} style={{fontFamily:C.mono,fontSize:9,padding:"2px 8px",background:"transparent",color:C.muted,border:`1px solid ${C.border}`,borderRadius:3,cursor:"pointer"}}>{showDailyPnl?"HIDE":"SHOW"}</button>
               </div>
