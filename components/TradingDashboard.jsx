@@ -4,10 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 const API = "https://finished-container-responsible-photograph.trycloudflare.com";
 // ─────────────────────────────────────────────────────────────────────────
 
-const SCAN_PAIRS  = ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD","XAUUSD"];
+const SCAN_PAIRS  = ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD"]; // XAUUSD excluded — not traded
 const TIMEFRAMES  = ["M1","M5","M15","M30","H1","H4","D1"];
-const MAX_POS     = 1; // max 1 position per bot
-const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 const C = {
   bg:"#080c14",panel:"#0d1320",card:"#111827",border:"#1a2438",
@@ -44,7 +42,7 @@ function Pill({label}){
 }
 
 // ── Bot Panel (reusable) ──────────────────────────────────────────────────
-function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot3,isBot4,liveSignal}){
+function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot3,isBot4,liveSignal,lastTrade}){
   const totalPnl=positions.reduce((s,p)=>s+(p.profit||0),0);
   const histPnl=history.reduce((s,h)=>s+(h.profit||0),0);
   const [tab,setTab]=useState("positions");
@@ -224,10 +222,15 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
           )}
         </div>
 
-        {/* Auto Log */}
+        {/* Auto Log — sourced from backend /auto-status, reflects the
+            server-side auto_trader.py engine regardless of this tab's
+            connection state */}
         {autoMode&&(
           <div style={{padding:"10px 14px"}}>
-            <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:6}}>Auto Log</div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+              <span style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1}}>Auto Log (backend)</span>
+              {lastTrade&&<span style={{fontSize:8,color:C.dim,fontFamily:C.mono}}>last trade: {lastTrade}</span>}
+            </div>
             <div style={{background:C.bg,borderRadius:4,padding:6,border:`1px solid ${C.border}`,maxHeight:110,overflowY:"auto"}}>
               {autoLog.length===0?(
                 <div style={{fontFamily:C.mono,fontSize:9,color:C.muted}}>Waiting for scan...</div>
@@ -268,32 +271,25 @@ export default function TradingDashboard(){
   const [hist2,setHist2]=useState([]);
   const [hist3,setHist3]=useState([]);
   const [hist4,setHist4]=useState([]);
+
+  // Auto-trade toggle state — these now just mirror the backend's
+  // auto_trader.py BOT_ENABLED flags. Actual trade execution happens
+  // server-side via the asyncio background loop, NOT in this browser.
   const [auto1,setAuto1]=useState(true);
   const [auto2,setAuto2]=useState(true);
-  const [auto3,setAuto3]=useState(true); // SNR Advance ready
-  const [auto4,setAuto4]=useState(false); // Bot 4 — default OFF until verified live
+  const [auto3,setAuto3]=useState(true);
+  const [auto4,setAuto4]=useState(true);
+
   const [bot1Mode,setBot1Mode]=useState("bot1");
   const [bot2Mode,setBot2Mode]=useState("bot2");
   const [bot3Mode,setBot3Mode]=useState("snrA");
   const [bot4Mode,setBot4Mode]=useState("retest2");
-  const [log1,setLog1]=useState([]);
-  const [log2,setLog2]=useState([]);
-  const [log3,setLog3]=useState([]);
-  const [log4,setLog4]=useState([]);
-  const [last1,setLast1]=useState(null);
-  const [last2,setLast2]=useState(null);
-  const [last3,setLast3]=useState(null);
-  const [last4,setLast4]=useState(null);
   const [bot4Signal,setBot4Signal]=useState(null); // live signal info for Bot 4 banner
-  const autoRef1=useRef(null);
-  const autoRef2=useRef(null);
-  const autoRef3=useRef(null);
-  const autoRef4=useRef(null);
 
-  const addLog=(setter,msg)=>{
-    const t=new Date().toLocaleTimeString("en-MY",{hour12:false});
-    setter(p=>[`[${t}] ${msg}`,...p].slice(0,25));
-  };
+  // Auto-status pulled from backend (replaces local log1..4 state + the
+  // old browser-side setInterval loops entirely)
+  const [autoStatus,setAutoStatus]=useState({});
+
   const showToast=(msg,type="ok")=>{setToast({msg,type});setTimeout(()=>setToast(null),3500);};
 
   const fetchAcc=useCallback(async()=>{
@@ -355,115 +351,51 @@ export default function TradingDashboard(){
     }catch{}
   },[symbol,timeframe,bot4Mode]);
 
-  const makeAutoRun=(botId,bMode,positions,lastTime,setLast,addLogFn,magic)=>async()=>{
-    if(positions.length>=MAX_POS){addLogFn(`⏸ Max ${MAX_POS} positions reached`);return;}
-    if(lastTime&&Date.now()-lastTime<COOLDOWN_MS){
-      const rem=((COOLDOWN_MS-(Date.now()-lastTime))/60000).toFixed(0);
-      addLogFn(`⏳ Cooldown: ${rem}min remaining`);return;
-    }
-    addLogFn(`🔍 Scanning ${SCAN_PAIRS.length} pairs...`);
-
-    // Bot 4 (CSR100 v2) needs its own scan logic since it returns
-    // valid_setup/direction instead of signal.direction/confidence like
-    // the other bots' /analyze* endpoints.
-    if(botId===4){
-      const minRetest=bMode==="retest3"?3:2;
-      const candidates=[];
-      for(const pair of SCAN_PAIRS){
-        try{
-          const r=await fetch(`${API}/analyze-csr100v2/${pair}?tf=${timeframe}&min_retest=${minRetest}`);
-          if(!r.ok)continue;
-          const data=await r.json();
-          if(data.valid_setup&&data.direction){
-            candidates.push({pair,direction:data.direction,retest:data.retest_count,confidence:data.confidence||0});
-          }
-        }catch{}
-      }
-      if(!candidates.length){addLogFn("😴 No valid CSR100 setup");return;}
-      candidates.sort((a,b)=>b.confidence-a.confidence);
-      const best=candidates[0];
-      addLogFn(`🎯 ${best.direction} ${best.pair} (retest ${best.retest}, conf ${best.confidence}%)`);
-      if(positions.some(p=>p.symbol===best.pair)){addLogFn(`⚠️ Already in ${best.pair}`);return;}
-      const action=best.direction==="BUY"?"buy":"sell";
-      try{
-        const r=await fetch(`${API}/order`,{method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({symbol:best.pair,action,lot:orderForm.lot,sl_pips:orderForm.sl,tp_pips:orderForm.tp,comment:`Auto-Bot4`,account:3,magic:44444})});
-        const res=await r.json();
-        if(res.ticket){
-          setLast(Date.now());
-          addLogFn(`✅ ${action.toUpperCase()} ${best.pair} @${res.price} #${res.ticket}`);
-          showToast(`⚡ Bot4: ${action.toUpperCase()} ${best.pair} — #${res.ticket}`);
-          fetchPos();fetchHist();
-        }else{addLogFn(`❌ ${res.detail||"Order failed"}`);}
-      }catch(e){addLogFn(`❌ Error: ${e.message}`);}
-      return;
-    }
-
-    const endpoint=bMode==="bot2"?"analyze-vp":bMode==="snrA"?"analyze-snr":bMode==="snrB"?"analyze-snr":"analyze";
-    const modeParam=bMode==="snrA"?"?mode=A&":bMode==="snrB"?"?mode=B&":"?";
-    const signals=[];
-    for(const pair of SCAN_PAIRS){
-      try{
-        const r=await fetch(`${API}/${endpoint}/${pair}${modeParam}timeframe=${timeframe}`);
-        if(!r.ok)continue;
-        const data=await r.json();
-        const sig=data?.signal?.direction;
-        const conf=data?.signal?.confidence||0;
-        if(conf>=60&&(sig==="STRONG BUY"||sig==="STRONG SELL"))signals.push({pair,sig,conf});
-      }catch{}
-    }
-    if(!signals.length){addLogFn("😴 No strong signals");return;}
-    signals.sort((a,b)=>b.conf-a.conf);
-    const best=signals[0];
-    addLogFn(`🎯 ${best.sig} ${best.pair} (${best.conf}%)`);
-    if(positions.some(p=>p.symbol===best.pair)){addLogFn(`⚠️ Already in ${best.pair}`);return;}
-    const action=best.sig==="STRONG BUY"?"buy":"sell";
-    const accountId=botId===1?1:2;
+  // Fetch backend auto-trade status — enabled flags, last-trade time, and
+  // recent log per bot. This is what now powers the "Auto Log" panel and
+  // keeps the toggle switches in sync with the actual server-side state
+  // (e.g. if you toggled a bot from another device/tab).
+  const fetchAutoStatus=useCallback(async()=>{
     try{
-      const r=await fetch(`${API}/order`,{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({symbol:best.pair,action,lot:orderForm.lot,sl_pips:orderForm.sl,tp_pips:orderForm.tp,comment:`Auto-Bot${botId}`,account:accountId,magic:magic})});
-      const res=await r.json();
-      if(res.ticket){
-        setLast(Date.now());
-        addLogFn(`✅ ${action.toUpperCase()} ${best.pair} @${res.price} #${res.ticket}`);
-        showToast(`⚡ Bot${botId}: ${action.toUpperCase()} ${best.pair} — #${res.ticket}`);
-        fetchPos();fetchHist();
-      }else{addLogFn(`❌ ${res.detail||"Order failed"}`);}
-    }catch(e){addLogFn(`❌ Error: ${e.message}`);}
+      const r=await fetch(`${API}/auto-status`);
+      if(r.ok){
+        const data=await r.json();
+        setAutoStatus(data);
+        if(data[1])setAuto1(data[1].enabled);
+        if(data[2])setAuto2(data[2].enabled);
+        if(data[3])setAuto3(data[3].enabled);
+        if(data[4])setAuto4(data[4].enabled);
+      }
+    }catch{}
+  },[]);
+
+  // Toggle a bot's auto-trade on the backend. Optimistic UI update with
+  // revert-on-failure so the switch never lies about actual server state.
+  const toggleBotAuto=async(botId,currentState,setter)=>{
+    const newState=!currentState;
+    setter(newState);
+    try{
+      const r=await fetch(`${API}/auto-toggle`,{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({bot_id:botId,enabled:newState})});
+      if(!r.ok)throw new Error("toggle failed");
+      showToast(`Bot${botId} auto-trade ${newState?"ENABLED":"DISABLED"}`);
+    }catch(e){
+      setter(currentState); // revert optimistic update
+      showToast(`Toggle failed: ${e.message}`,"err");
+    }
   };
 
-  // Auto intervals
-  useEffect(()=>{
-    if(!auto1){clearInterval(autoRef1.current);return;}
-    const run=makeAutoRun(1,bot1Mode,pos1,last1,setLast1,(msg)=>addLog(setLog1,msg),11111);
-    run();autoRef1.current=setInterval(run,30000);
-    return()=>clearInterval(autoRef1.current);
-  },[auto1,bot1Mode,pos1,last1,timeframe,orderForm]);
+  // NOTE: Auto-trade execution no longer happens in this browser.
+  // The old 4x useEffect(setInterval(...)) blocks that scanned pairs and
+  // called /order directly have been removed — that logic now runs
+  // server-side in auto_trader.py as an asyncio background task inside
+  // the FastAPI process, so trades execute 24/7 regardless of whether
+  // this dashboard tab is open. This component is now pure monitoring +
+  // manual override (toggle on/off, manual BUY/SELL/CLOSE).
 
   useEffect(()=>{
-    if(!auto2){clearInterval(autoRef2.current);return;}
-    const run=makeAutoRun(2,bot2Mode,pos2,last2,setLast2,(msg)=>addLog(setLog2,msg),22222);
-    run();autoRef2.current=setInterval(run,30000);
-    return()=>clearInterval(autoRef2.current);
-  },[auto2,bot2Mode,pos2,last2,timeframe,orderForm]);
-
-  useEffect(()=>{
-    if(!auto3){clearInterval(autoRef3.current);return;}
-    const run=makeAutoRun(3,bot3Mode,pos3,last3,setLast3,(msg)=>addLog(setLog3,msg),33333);
-    run();autoRef3.current=setInterval(run,30000);
-    return()=>clearInterval(autoRef3.current);
-  },[auto3,bot3Mode,pos3,last3,timeframe,orderForm]);
-
-  useEffect(()=>{
-    if(!auto4){clearInterval(autoRef4.current);return;}
-    const run=makeAutoRun(4,bot4Mode,pos4,last4,setLast4,(msg)=>addLog(setLog4,msg),44444);
-    run();autoRef4.current=setInterval(run,30000);
-    return()=>clearInterval(autoRef4.current);
-  },[auto4,bot4Mode,pos4,last4,timeframe,orderForm]);
-
-  useEffect(()=>{
-    fetchAcc();fetchPos();fetchHist();fetchScan();fetchAnalysis();fetchBot4Signal();
-    const t=setInterval(()=>{fetchAcc();fetchPos();},10000);
+    fetchAcc();fetchPos();fetchHist();fetchScan();fetchAnalysis();fetchBot4Signal();fetchAutoStatus();
+    const t=setInterval(()=>{fetchAcc();fetchPos();fetchAutoStatus();},10000);
     const s=setInterval(()=>{fetchScan();},60000);
     const b4=setInterval(()=>{fetchBot4Signal();},30000);
     return()=>{clearInterval(t);clearInterval(s);clearInterval(b4);};
@@ -545,14 +477,34 @@ export default function TradingDashboard(){
     setDailyPnl(stored);
   },[]);
 
+  // Reset the Daily P&L Tracker — clears the localStorage cache only.
+  // This does NOT touch real MT5 trade history/balance; it just clears
+  // the tracker's own running display so it rebuilds fresh going forward.
+  const resetDailyPnl=()=>{
+    if(!window.confirm("Reset Daily P&L Tracker? This clears the tracker display only — it won't affect your actual MT5 account balance or trade history."))return;
+    localStorage.removeItem("xm_daily_pnl");
+    setDailyPnl([]);
+    showToast("Daily P&L Tracker reset");
+  };
+
+  const [activeBot,setActiveBot]=useState(1);
+
+  const botConfigs=[
+    {id:1,name:"Bot 1",color:C.accent,account:acc1,positions:pos1,history:hist1,auto:auto1,setAuto:setAuto1,mode:bot1Mode,setMode:setBot1Mode},
+    {id:2,name:"Bot 2",color:"#6366f1",account:acc2,positions:pos2,history:hist2,auto:auto2,setAuto:setAuto2,mode:bot2Mode,setMode:setBot2Mode},
+    {id:3,name:"Bot 3",color:C.csr,account:acc2,positions:pos3,history:hist3,auto:auto3,setAuto:setAuto3,mode:bot3Mode,setMode:setBot3Mode,isBot3:true},
+    {id:4,name:"Bot 4",color:C.csr2,account:acc3,positions:pos4,history:hist4,auto:auto4,setAuto:setAuto4,mode:bot4Mode,setMode:setBot4Mode,isBot4:true,liveSignal:bot4Signal},
+  ];
+  const activeCfg=botConfigs.find(b=>b.id===activeBot)||botConfigs[0];
+
   return(
-    <div style={{fontFamily:C.sans,background:C.bg,minHeight:"100vh",color:C.text,margin:0}}>
+    <div style={{fontFamily:C.sans,background:C.bg,minHeight:"100vh",color:C.text,margin:0,display:"flex",flexDirection:"column"}}>
       {/* Topbar */}
-      <div style={{background:C.panel,borderBottom:`1px solid ${C.border}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:48,position:"sticky",top:0,zIndex:100}}>
+      <div style={{background:C.panel,borderBottom:`1px solid ${C.border}`,padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:48,flexShrink:0,position:"sticky",top:0,zIndex:100}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <div style={{width:26,height:26,borderRadius:5,background:C.accent,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:900,fontSize:13,color:"#000"}}>X</div>
           <span style={{fontWeight:700,fontSize:14,letterSpacing:0.3}}>XM Trading</span>
-          <span style={{fontSize:10,color:C.muted,background:C.card,border:`1px solid ${C.border}`,padding:"2px 8px",borderRadius:3}}>Quad Bot v4</span>
+          <span style={{fontSize:10,color:C.muted,background:C.card,border:`1px solid ${C.border}`,padding:"2px 8px",borderRadius:3}}>Quad Bot v4 · Backend Auto-Trade</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6}}>
           <div style={{width:7,height:7,borderRadius:"50%",background:connected?C.buy:C.sell,boxShadow:connected?`0 0 6px ${C.buy}`:"none"}}/>
@@ -565,34 +517,31 @@ export default function TradingDashboard(){
         </div>
       </div>
 
-      {/* Main Grid: Scanner | Center | Bot1 | Bot2 | Bot3 | Bot4 */}
-      <div style={{display:"grid",gridTemplateColumns:"160px 1fr 240px 240px 240px 240px",height:"calc(100vh - 48px)",overflow:"hidden"}}>
-
-        {/* Scanner */}
-        <div style={{background:C.panel,borderRight:`1px solid ${C.border}`,overflowY:"auto",display:"flex",flexDirection:"column"}}>
-          <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",position:"sticky",top:0,background:C.panel,zIndex:1}}>
-            <span style={{fontSize:10,fontWeight:600,color:C.muted,textTransform:"uppercase",letterSpacing:1.5}}>Scanner</span>
-            {loadScan&&<span style={{fontSize:9,color:C.dim}}>updating...</span>}
-          </div>
-          {scan.map(row=>(
-            <div key={row.symbol} onClick={()=>{setSymbol(row.symbol);fetchAnalysis(row.symbol,timeframe);fetchBot4Signal(row.symbol,timeframe);}}
-              style={{padding:"9px 14px",cursor:"pointer",borderBottom:`1px solid ${C.border}`,background:symbol===row.symbol?C.card:"transparent",transition:"background .1s"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
-                <span style={{fontFamily:C.mono,fontSize:12,fontWeight:700,color:symbol===row.symbol?C.accent:C.text}}>{row.symbol}</span>
-                <Pill label={row.signal}/>
-              </div>
-              <div style={{display:"flex",justifyContent:"space-between"}}>
-                <span style={{fontFamily:C.mono,fontSize:10,color:C.muted}}>{fmt(row.bid,row.symbol.includes("JPY")||row.symbol==="XAUUSD"?2:5)}</span>
-                <span style={{fontSize:10,color:C.dim}}>{row.confidence}%</span>
-              </div>
+      {/* Scanner Bar — horizontal */}
+      <div style={{background:C.panel,borderBottom:`1px solid ${C.border}`,display:"flex",alignItems:"center",overflowX:"auto",flexShrink:0,padding:"0 10px",gap:4,height:64}}>
+        <span style={{fontSize:9,fontWeight:600,color:loadScan?C.accent:C.muted,textTransform:"uppercase",letterSpacing:1.5,whiteSpace:"nowrap",marginRight:4,paddingRight:8,borderRight:`1px solid ${C.border}`}}>
+          {loadScan?"SCANNING...":"SCANNER"}
+        </span>
+        {scan.map(row=>(
+          <div key={row.symbol} onClick={()=>{setSymbol(row.symbol);fetchAnalysis(row.symbol,timeframe);fetchBot4Signal(row.symbol,timeframe);}}
+            style={{display:"flex",flexDirection:"column",alignItems:"flex-start",gap:2,padding:"5px 10px",cursor:"pointer",borderRadius:5,border:`1px solid ${symbol===row.symbol?C.accent:C.border}`,background:symbol===row.symbol?C.card:C.bg,minWidth:105,flexShrink:0,transition:"all .1s"}}>
+            <div style={{display:"flex",alignItems:"center",gap:5}}>
+              <span style={{fontFamily:C.mono,fontSize:11,fontWeight:700,color:symbol===row.symbol?C.accent:C.text}}>{row.symbol}</span>
+              <Pill label={row.signal}/>
             </div>
-          ))}
-          {!scan.length&&!loadScan&&(
-            <div style={{padding:20,fontSize:11,color:C.muted,textAlign:"center"}}>No data</div>
-          )}
-        </div>
+            <div style={{display:"flex",gap:8}}>
+              <span style={{fontFamily:C.mono,fontSize:9,color:C.muted}}>{fmt(row.bid,row.symbol.includes("JPY")?2:5)}</span>
+              <span style={{fontSize:9,color:sigCol(row.signal),fontWeight:700}}>{row.confidence}%</span>
+            </div>
+          </div>
+        ))}
+        {!scan.length&&!loadScan&&<span style={{fontSize:11,color:C.muted,padding:"0 12px"}}>No data</span>}
+      </div>
 
-        {/* Center: Chart + Analysis */}
+      {/* Main: Center + Bot Tab Panel */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 320px",flex:1,overflow:"hidden"}}>
+
+        {/* Center: Chart + Analysis + Stats */}
         <div style={{overflowY:"auto",padding:14,display:"flex",flexDirection:"column",gap:10}}>
           <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
             <select value={symbol} onChange={e=>{setSymbol(e.target.value);fetchAnalysis(e.target.value,timeframe);fetchBot4Signal(e.target.value,timeframe);}}
@@ -658,8 +607,8 @@ export default function TradingDashboard(){
             </div>
           )}
 
-          {/* Combined Stats — All 4 Bots */}
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginBottom:12}}>
+          {/* Combined Stats */}
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>Combined — All 4 Bots</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:14}}>
               {[["Total Positions",allPos.length],["Float P&L",fmtPnl(allPos.reduce((s,p)=>s+(p.profit||0),0)),allPos.reduce((s,p)=>s+(p.profit||0),0)>=0?C.buy:C.sell],["14d Trades",allHist.length],["14d P&L",fmtPnl(allHist.reduce((s,h)=>s+(h.profit||0),0)),allHist.reduce((s,h)=>s+(h.profit||0),0)>=0?C.buy:C.sell]].map(([lbl,val,col])=>(
@@ -714,10 +663,13 @@ export default function TradingDashboard(){
           </div>
 
           {/* Daily P&L Tracker */}
-          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginTop:12}}>
+          <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14,marginTop:4}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:showDailyPnl?12:0}}>
               <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,fontWeight:600}}>📅 Daily P&L Tracker</div>
-              <button onClick={()=>setShowDailyPnl(p=>!p)} style={{fontFamily:C.mono,fontSize:9,padding:"2px 8px",background:"transparent",color:C.muted,border:`1px solid ${C.border}`,borderRadius:3,cursor:"pointer"}}>{showDailyPnl?"HIDE":"SHOW"}</button>
+              <div style={{display:"flex",gap:6}}>
+                <button onClick={resetDailyPnl} style={{fontFamily:C.mono,fontSize:9,padding:"2px 8px",background:"transparent",color:C.sell,border:`1px solid ${C.sell}44`,borderRadius:3,cursor:"pointer"}}>RESET</button>
+                <button onClick={()=>setShowDailyPnl(p=>!p)} style={{fontFamily:C.mono,fontSize:9,padding:"2px 8px",background:"transparent",color:C.muted,border:`1px solid ${C.border}`,borderRadius:3,cursor:"pointer"}}>{showDailyPnl?"HIDE":"SHOW"}</button>
+              </div>
             </div>
             {showDailyPnl&&(
               dailyPnl.length===0?(
@@ -748,38 +700,52 @@ export default function TradingDashboard(){
           </div>
         </div>
 
-        {/* Bot 1 Panel */}
-        <BotPanel botId={1} botName="Bot 1 — Standard" botColor={C.accent}
-          account={acc1} positions={pos1} history={hist1} autoLog={log1}
-          autoMode={auto1} onToggleAuto={()=>setAuto1(p=>!p)}
-          botMode={bot1Mode} onBotMode={setBot1Mode}
-          orderForm={orderForm} setOrderForm={setOrderForm}
-          symbol={symbol} onPlaceOrder={placeOrder} onClosePos={closePos} loading={loadOrder}/>
+        {/* Right: Bot Tab Panel */}
+        <div style={{display:"flex",flexDirection:"column",background:C.panel,borderLeft:`1px solid ${C.border}`,overflow:"hidden"}}>
+          {/* Bot Tabs */}
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+            {botConfigs.map(b=>(
+              <button key={b.id} onClick={()=>setActiveBot(b.id)}
+                style={{fontFamily:C.sans,fontSize:11,fontWeight:700,padding:"10px 0",cursor:"pointer",
+                  background:activeBot===b.id?C.card:"transparent",
+                  color:activeBot===b.id?b.color:C.muted,
+                  border:"none",borderBottom:`2px solid ${activeBot===b.id?b.color:"transparent"}`,
+                  transition:"all .15s",display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                <span style={{fontSize:13}}>{b.id}</span>
+                <span style={{fontSize:8,letterSpacing:0.5}}>{b.name.split("—")[0].trim()}</span>
+                {/* Live position indicator dot */}
+                {b.positions.length>0&&<div style={{width:5,height:5,borderRadius:"50%",background:b.color,boxShadow:`0 0 4px ${b.color}`}}/>}
+              </button>
+            ))}
+          </div>
 
-        {/* Bot 2 Panel */}
-        <BotPanel botId={2} botName="Bot 2 — Vol Profile" botColor="#6366f1"
-          account={acc2} positions={pos2} history={hist2} autoLog={log2}
-          autoMode={auto2} onToggleAuto={()=>setAuto2(p=>!p)}
-          botMode={bot2Mode} onBotMode={setBot2Mode}
-          orderForm={orderForm} setOrderForm={setOrderForm}
-          symbol={symbol} onPlaceOrder={placeOrder} onClosePos={closePos} loading={loadOrder}/>
-
-        {/* Bot 3 Panel — CSR100 + HNS */}
-        <BotPanel botId={3} botName="Bot 3 — CSR100+HNS" botColor={C.csr} isBot3={true}
-          account={acc2} positions={pos3} history={hist3} autoLog={log3}
-          autoMode={auto3} onToggleAuto={()=>setAuto3(p=>!p)}
-          botMode={bot3Mode} onBotMode={setBot3Mode}
-          orderForm={orderForm} setOrderForm={setOrderForm}
-          symbol={symbol} onPlaceOrder={placeOrder} onClosePos={closePos} loading={loadOrder}/>
-
-        {/* Bot 4 Panel — CSR100 v2 (pure price action) */}
-        <BotPanel botId={4} botName="Bot 4 — CSR100 v2" botColor={C.csr2} isBot4={true}
-          account={acc3} positions={pos4} history={hist4} autoLog={log4}
-          autoMode={auto4} onToggleAuto={()=>setAuto4(p=>!p)}
-          botMode={bot4Mode} onBotMode={setBot4Mode}
-          orderForm={orderForm} setOrderForm={setOrderForm}
-          symbol={symbol} onPlaceOrder={placeOrder} onClosePos={closePos} loading={loadOrder}
-          liveSignal={bot4Signal}/>
+          {/* Active Bot Panel */}
+          <div style={{flex:1,overflow:"hidden"}}>
+            <BotPanel
+              botId={activeCfg.id}
+              botName={activeCfg.name}
+              botColor={activeCfg.color}
+              account={activeCfg.account}
+              positions={activeCfg.positions}
+              history={activeCfg.history}
+              autoLog={autoStatus[activeCfg.id]?.log||[]}
+              lastTrade={autoStatus[activeCfg.id]?.last_trade}
+              autoMode={activeCfg.auto}
+              onToggleAuto={()=>toggleBotAuto(activeCfg.id,activeCfg.auto,activeCfg.setAuto)}
+              botMode={activeCfg.mode}
+              onBotMode={activeCfg.setMode}
+              orderForm={orderForm}
+              setOrderForm={setOrderForm}
+              symbol={symbol}
+              onPlaceOrder={placeOrder}
+              onClosePos={closePos}
+              loading={loadOrder}
+              isBot3={activeCfg.isBot3||false}
+              isBot4={activeCfg.isBot4||false}
+              liveSignal={activeCfg.liveSignal||null}
+            />
+          </div>
+        </div>
       </div>
 
       {toast&&(
