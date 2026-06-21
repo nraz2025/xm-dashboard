@@ -42,7 +42,7 @@ function Pill({label}){
 }
 
 // ── Bot Panel (reusable) ──────────────────────────────────────────────────
-function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot3,isBot4,liveSignal,lastTrade}){
+function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot2,isBot3,isBot4,liveSignal,lastTrade}){
   const totalPnl=positions.reduce((s,p)=>s+(p.profit||0),0);
   const histPnl=history.reduce((s,h)=>s+(h.profit||0),0);
   const [tab,setTab]=useState("positions");
@@ -51,6 +51,8 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
     ? [["snrA","Mode A (H4+M15)"],["snrB","Mode B (D1+H1)"]]
     : isBot4
     ? [["retest2","Min 2nd Retest"],["retest3","Min 3rd Retest"]]
+    : isBot2
+    ? [] // Bot 2 now runs its own dedicated strategy (Price Break Through) on its own account — no mode toggle needed
     : [["bot1","Standard"],["bot2","+ Vol Profile"]];
 
   return(
@@ -90,11 +92,13 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
         )}
 
         {/* Bot Mode */}
-        <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:6}}>
-          {modeOptions.map(([k,l])=>(
-            <button key={k} onClick={()=>onBotMode(k)} style={{flex:1,fontFamily:C.sans,fontSize:10,fontWeight:600,padding:"4px 0",borderRadius:4,cursor:"pointer",background:botMode===k?botColor||C.accent:C.card,color:botMode===k?"#000":C.dim,border:`1px solid ${botMode===k?botColor||C.accent:C.border}`}}>{l}</button>
-          ))}
-        </div>
+        {modeOptions.length>0&&(
+          <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:6}}>
+            {modeOptions.map(([k,l])=>(
+              <button key={k} onClick={()=>onBotMode(k)} style={{flex:1,fontFamily:C.sans,fontSize:10,fontWeight:600,padding:"4px 0",borderRadius:4,cursor:"pointer",background:botMode===k?botColor||C.accent:C.card,color:botMode===k?"#000":C.dim,border:`1px solid ${botMode===k?botColor||C.accent:C.border}`}}>{l}</button>
+            ))}
+          </div>
+        )}
 
         {/* Bot 3 Info Banner */}
         {isBot3&&(
@@ -565,7 +569,7 @@ export default function TradingDashboard(){
 
   const botConfigs=[
     {id:1,name:"Bot 1",color:C.accent,account:acc1,positions:pos1,history:hist1,auto:auto1,setAuto:setAuto1,mode:bot1Mode,setMode:setBot1Mode},
-    {id:2,name:"Bot 2",color:"#6366f1",account:acc2,positions:pos2,history:hist2,auto:auto2,setAuto:setAuto2,mode:bot2Mode,setMode:setBot2Mode},
+    {id:2,name:"Bot 2 — Price Break Through",color:"#6366f1",account:acc2,positions:pos2,history:hist2,auto:auto2,setAuto:setAuto2,mode:bot2Mode,setMode:setBot2Mode,isBot2:true},
     {id:3,name:"Bot 3",color:C.csr,account:acc3,positions:pos3,history:hist3,auto:auto3,setAuto:setAuto3,mode:bot3Mode,setMode:setBot3Mode,isBot3:true},
     {id:4,name:"Bot 4",color:C.csr2,account:acc4,positions:pos4,history:hist4,auto:auto4,setAuto:setAuto4,mode:bot4Mode,setMode:setBot4Mode,isBot4:true,liveSignal:bot4Signal},
   ];
@@ -700,7 +704,7 @@ export default function TradingDashboard(){
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:2,background:C.border,borderRadius:6,overflow:"hidden"}}>
               {[
                 {label:"Bot 1 — Standard",color:C.accent,perf:perf1},
-                {label:"Bot 2 — Vol Profile",color:"#6366f1",perf:perf2},
+                {label:"Bot 2 — Price Break Through",color:"#6366f1",perf:perf2},
                 {label:"Bot 3 — SNR Advance",color:C.csr,perf:perf3},
                 {label:"Bot 4 — CSR100 v2",color:C.csr2,perf:perf4},
               ].map(({label,color,perf})=>(
@@ -815,6 +819,7 @@ export default function TradingDashboard(){
               onPlaceOrder={placeOrder}
               onClosePos={closePos}
               loading={loadOrder}
+              isBot2={activeCfg.isBot2||false}
               isBot3={activeCfg.isBot3||false}
               isBot4={activeCfg.isBot4||false}
               liveSignal={activeCfg.liveSignal||null}
