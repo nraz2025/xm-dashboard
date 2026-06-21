@@ -51,9 +51,7 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
     ? [["snrA","Mode A (H4+M15)"],["snrB","Mode B (D1+H1)"]]
     : isBot4
     ? [["retest2","Min 2nd Retest"],["retest3","Min 3rd Retest"]]
-    : isBot2
-    ? [] // Bot 2 now runs its own dedicated strategy (Price Break Through) on its own account — no mode toggle needed
-    : [["bot1","Standard"],["bot2","+ Vol Profile"]];
+    : []; // Bot 1 (Standard) and Bot 2 (Price Break Through) no longer use a mode toggle
 
   return(
     <div style={{display:"flex",flexDirection:"column",background:C.panel,borderLeft:`1px solid ${C.border}`,height:"100%",overflow:"hidden"}}>
