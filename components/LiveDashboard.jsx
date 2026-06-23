@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 // ── UPDATE THIS URL SETIAP KALI RESTART VPS — same backend, same tunnel
 // as TradingDashboard.jsx (this dashboard just talks to account=5/bot_id=5
 // on the same FastAPI server) ────────────────────────────────────────────
-const API = "https://assessed-period-bufing-merry.trycloudflare.com";
+const API = "https://leisure-jar-listprice-intelligent.trycloudflare.com";
 // ─────────────────────────────────────────────────────────────────────────
 
 const LIVE_ACCOUNT = 5;
