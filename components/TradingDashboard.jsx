@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 const API = "https://leisure-jar-listprice-intelligent.trycloudflare.com";
 // ─────────────────────────────────────────────────────────────────────────
 
-const SCAN_PAIRS  = ["EURUSD","GBPUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD"]; // XAUUSD excluded — not traded
+const SCAN_PAIRS  = ["EURUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD"]; // XAUUSD excluded — not traded
 const TIMEFRAMES  = ["M1","M5","M15","M30","H1","H4","D1"];
 
 const C = {
@@ -47,11 +47,10 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
   const histPnl=history.reduce((s,h)=>s+(h.profit||0),0);
   const [tab,setTab]=useState("positions");
 
-  const modeOptions = isBot3
-    ? [["snrA","Mode A (H4+M15)"],["snrB","Mode B (D1+H1)"]]
-    : isBot4
+  // ✅ CHANGE 2: REMOVE Bot 3 Mode A/B — only Bot 4 has mode selector
+  const modeOptions = isBot4
     ? [["retest2","Min 2nd Retest"],["retest3","Min 3rd Retest"]]
-    : []; // Bot 1 (Standard) and Bot 2 (Price Break Through) no longer use a mode toggle
+    : []; // Bot 1, 2, 3 — no mode toggle
 
   return(
     <div style={{display:"flex",flexDirection:"column",background:C.panel,borderLeft:`1px solid ${C.border}`,height:"100%",overflow:"hidden"}}>
@@ -101,9 +100,9 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
         {/* Bot 3 Info Banner */}
         {isBot3&&(
           <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`,background:C.csr+"11",border:`1px solid ${C.csr}33`}}>
-            <div style={{fontSize:10,color:C.csr,fontWeight:700,marginBottom:3}}>⚡ SNR Advance Strategy</div>
-            <div style={{fontSize:9,color:C.muted}}>Magic: 33333 · Account 2 · Engulfing CRS @ SNR Zone</div>
-            <div style={{fontSize:9,color:C.muted,marginTop:2}}>Mode A: H4 trend + M15 entry · Mode B: Daily + H1</div>
+            <div style={{fontSize:10,color:C.csr,fontWeight:700,marginBottom:3}}>⚡ SNR Advance Ebook</div>
+            <div style={{fontSize:9,color:C.muted}}>Magic: 33333 · Account 1301627547 · Engulfing CRS @ SNR Zone</div>
+            <div style={{fontSize:9,color:C.muted,marginTop:2}}>Daily Trend → H4 CRS/SNR → H1 Entry (Minor Breakout + H&S)</div>
           </div>
         )}
 
@@ -309,7 +308,7 @@ export default function TradingDashboard(){
 
   const [bot1Mode,setBot1Mode]=useState("bot1");
   const [bot2Mode,setBot2Mode]=useState("bot2");
-  const [bot3Mode,setBot3Mode]=useState("snrA");
+  // ✅ CHANGE 1: DELETED: const [bot3Mode,setBot3Mode]=useState("snrA");
   const [bot4Mode,setBot4Mode]=useState("retest2");
   const [bot4Signal,setBot4Signal]=useState(null); // live signal info for Bot 4 banner
 
@@ -597,10 +596,11 @@ export default function TradingDashboard(){
 
   const [activeBot,setActiveBot]=useState(1);
 
+  // ✅ CHANGE 4 & 5: Remove mode/setMode from Bot 3, update name
   const botConfigs=[
     {id:1,name:"Bot 1",color:C.accent,account:acc1,positions:pos1,history:hist1,auto:auto1,setAuto:setAuto1,mode:bot1Mode,setMode:setBot1Mode},
     {id:2,name:"Bot 2 — Price Break Through",color:"#6366f1",account:acc2,positions:pos2,history:hist2,auto:auto2,setAuto:setAuto2,mode:bot2Mode,setMode:setBot2Mode,isBot2:true},
-    {id:3,name:"Bot 3",color:C.csr,account:acc3,positions:pos3,history:hist3,auto:auto3,setAuto:setAuto3,mode:bot3Mode,setMode:setBot3Mode,isBot3:true},
+    {id:3,name:"Bot 3 — SNR Advance Ebook",color:C.csr,account:acc3,positions:pos3,history:hist3,auto:auto3,setAuto:setAuto3,isBot3:true},
     {id:4,name:"Bot 4",color:C.csr2,account:acc4,positions:pos4,history:hist4,auto:auto4,setAuto:setAuto4,mode:bot4Mode,setMode:setBot4Mode,isBot4:true,liveSignal:bot4Signal},
   ];
   const activeCfg=botConfigs.find(b=>b.id===activeBot)||botConfigs[0];
