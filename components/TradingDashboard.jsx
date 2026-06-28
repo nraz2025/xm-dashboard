@@ -110,11 +110,35 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
         {/* Bot 4 Info Banner */}
         {isBot4&&(
           <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`,background:C.csr2+"11",border:`1px solid ${C.csr2}33`}}>
-            <div style={{fontSize:10,color:C.csr2,fontWeight:700,marginBottom:3}}>🎯 TEKNIK CSR100 v2</div>
+            <div style={{fontSize:10,color:C.csr2,fontWeight:700,marginBottom:3}}>🎯 TEKNIK CSR100 v2 — 3TF Cascade</div>
             <div style={{fontSize:9,color:C.muted}}>Magic: 44444 · Account 3 · Pure Price Action — NO indicators</div>
-            <div style={{fontSize:9,color:C.muted,marginTop:2}}>SBR/RBS zone + retest counting · Trade-with-trend only</div>
-            {liveSignal&&(
+            <div style={{fontSize:9,color:C.muted,marginTop:2}}>H4 Trend → H1 SBR/RBS Zone → M15 Entry Trigger</div>
+            {liveSignal&&liveSignal.tf_breakdown&&(
+              <div style={{marginTop:6,paddingTop:6,borderTop:`1px solid ${C.csr2}33`,display:"flex",flexDirection:"column",gap:5}}>
+                {[
+                  ["H4 — Trend",liveSignal.tf_breakdown.h4?.status],
+                  ["H1 — Zone",liveSignal.tf_breakdown.h1?.status],
+                  ["M15 — Entry",liveSignal.tf_breakdown.m15?.status],
+                ].map(([label,status])=>(
+                  <div key={label} style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                    <span style={{fontSize:9,color:C.muted,whiteSpace:"nowrap"}}>{label}</span>
+                    <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:C.text,textAlign:"right"}}>{status||"—"}</span>
+                  </div>
+                ))}
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:2,paddingTop:5,borderTop:`1px solid ${C.csr2}22`}}>
+                  <span style={{fontSize:9,color:C.muted,fontWeight:700}}>VALID SETUP</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:liveSignal.valid_setup?C.buy:C.dim}}>
+                    {liveSignal.valid_setup?`YES — ${liveSignal.direction}`:"NO"}
+                  </span>
+                </div>
+              </div>
+            )}
+            {/* Fallback: old single-row display, only shown if tf_breakdown is
+                missing (e.g. backend hasn't been updated yet, or a stale
+                cached response from before the 3TF endpoint existed) */}
+            {liveSignal&&!liveSignal.tf_breakdown&&(
               <div style={{marginTop:6,paddingTop:6,borderTop:`1px solid ${C.csr2}33`,display:"flex",flexDirection:"column",gap:3}}>
+                <div style={{fontSize:8,color:C.dim,marginBottom:2}}>⚠️ tf_breakdown unavailable — showing legacy fields</div>
                 <div style={{display:"flex",justifyContent:"space-between"}}>
                   <span style={{fontSize:9,color:C.muted}}>Trend</span>
                   <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:C.text}}>{liveSignal.trend||"—"}</span>
@@ -350,13 +374,20 @@ export default function TradingDashboard(){
   },[symbol,timeframe]);
 
   // Fetch Bot 4 live signal for the currently selected symbol (for the info banner)
-  const fetchBot4Signal=useCallback(async(sym=symbol,tf=timeframe,mode=bot4Mode)=>{
+  // Updated 24 Jun 2026: now calls the 3-TF cascade endpoint
+  // (/analyze-csr100v2-3tf) instead of the old 2-TF one — H4 trend / H1
+  // zone (SBR/RBS+retest) / M15 entry trigger, each shown as its own row
+  // via the tf_breakdown object the backend now returns. No longer
+  // depends on the dashboard's selected `timeframe` state, since the
+  // 3-TF cascade always uses a fixed M15/H1/H4 combination regardless of
+  // what symbol/timeframe is selected elsewhere on the page.
+  const fetchBot4Signal=useCallback(async(sym=symbol,mode=bot4Mode)=>{
     const minRetest=mode==="retest3"?3:2;
     try{
-      const r=await fetch(`${API}/analyze-csr100v2/${sym}?tf=${tf}&min_retest=${minRetest}`);
+      const r=await fetch(`${API}/analyze-csr100v2-3tf/${sym}?min_retest=${minRetest}&account=3`);
       if(r.ok)setBot4Signal(await r.json());
     }catch{}
-  },[symbol,timeframe,bot4Mode]);
+  },[symbol,bot4Mode]);
 
   // Fetch backend auto-trade status — enabled flags, last-trade time, and
   // recent log per bot. This is what now powers the "Auto Log" panel and
@@ -408,7 +439,8 @@ export default function TradingDashboard(){
     return()=>{clearInterval(t);clearInterval(s);clearInterval(b4);};
   },[]);
 
-  useEffect(()=>{fetchAnalysis();fetchBot4Signal();},[symbol,timeframe]);
+  useEffect(()=>{fetchAnalysis();},[symbol,timeframe]);
+  useEffect(()=>{fetchBot4Signal();},[symbol]);
   useEffect(()=>{fetchScan();},[timeframe]);
   useEffect(()=>{fetchBot4Signal();},[bot4Mode]);
 
