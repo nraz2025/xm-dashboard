@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── UPDATE THIS URL SETIAP KALI RESTART VPS ──────────────────────────────
-const API = "https://leisure-jar-listprice-intelligent.trycloudflare.com";
+const API = "https://gtk-union-semiconductor-honor.trycloudflare.com";
 // ─────────────────────────────────────────────────────────────────────────
 
 const SCAN_PAIRS  = ["EURUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD"]; // XAUUSD excluded — not traded
