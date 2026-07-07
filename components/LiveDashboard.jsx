@@ -42,6 +42,7 @@ export default function LiveDashboard(){
   // reflects exactly what _run_bot5_live_cycle() itself sees, not the
   // demo account's (account 4) market view.
   const LIVE_PAIRS = ["EURUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD"];
+  const pipSize = (symbol) => symbol && symbol.toUpperCase().includes("JPY") ? 0.01 : 0.0001;
   const [signalSymbol,setSignalSymbol] = useState("EURUSD");
   const [liveSignal,setLiveSignal]     = useState(null);
   const [pending,setPending]           = useState([]);
@@ -358,14 +359,35 @@ export default function LiveDashboard(){
 
         {/* Open positions */}
         <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:16}}>
-          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>
-            Open Positions ({positions.length})
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,fontWeight:600}}>
+              Open Positions ({positions.length})
+            </div>
+            {positions.length>0 && (()=>{
+              const totalSlPips = positions.reduce((sum,p)=>{
+                const pip = pipSize(p.symbol);
+                return sum + (p.sl ? Math.abs(p.open_price - p.sl) / pip : 0);
+              }, 0);
+              const totalTpPips = positions.reduce((sum,p)=>{
+                const pip = pipSize(p.symbol);
+                return sum + (p.tp ? Math.abs(p.tp - p.open_price) / pip : 0);
+              }, 0);
+              return (
+                <span style={{fontSize:9,fontFamily:C.mono,color:C.muted}}>
+                  Total SL <span style={{color:C.sell}}>{totalSlPips.toFixed(1)}p</span> · Total TP <span style={{color:C.buy}}>{totalTpPips.toFixed(1)}p</span>
+                </span>
+              );
+            })()}
           </div>
           {positions.length===0 ? (
             <div style={{fontSize:12,color:C.muted,textAlign:"center",padding:"14px 0"}}>No open positions</div>
           ) : (
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
-              {positions.map(p=>(
+              {positions.map(p=>{
+                const pip = pipSize(p.symbol);
+                const slPips = p.sl ? Math.abs(p.open_price - p.sl) / pip : null;
+                const tpPips = p.tp ? Math.abs(p.tp - p.open_price) / pip : null;
+                return (
                 <div key={p.ticket} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                   <div>
                     <div style={{display:"flex",gap:8,alignItems:"center"}}>
@@ -374,6 +396,10 @@ export default function LiveDashboard(){
                       <span style={{fontFamily:C.mono,fontSize:11,color:C.muted}}>{p.lot}L</span>
                     </div>
                     <div style={{fontSize:10,color:C.muted,fontFamily:C.mono,marginTop:2}}>#{p.ticket} · {fmt(p.open_price)}</div>
+                    <div style={{fontSize:9,color:C.muted,fontFamily:C.mono,marginTop:3,display:"flex",gap:8}}>
+                      <span style={{color:C.sell}}>SL {p.sl?fmt(p.sl):"—"}{slPips!=null?` (${slPips.toFixed(1)}p)`:""}</span>
+                      <span style={{color:C.buy}}>TP {p.tp?fmt(p.tp):"—"}{tpPips!=null?` (${tpPips.toFixed(1)}p)`:""}</span>
+                    </div>
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:10}}>
                     <span style={{fontFamily:C.mono,fontSize:14,fontWeight:700,color:p.profit>=0?C.buy:C.sell}}>{fmtPnl(p.profit)}</span>
@@ -383,7 +409,7 @@ export default function LiveDashboard(){
                     </button>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </div>
