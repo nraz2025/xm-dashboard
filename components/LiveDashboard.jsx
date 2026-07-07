@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 // ── UPDATE THIS URL SETIAP KALI RESTART VPS — same backend, same tunnel
 // as TradingDashboard.jsx (this dashboard just talks to account=5/bot_id=5
 // on the same FastAPI server) ────────────────────────────────────────────
-const API = "https://leisure-jar-listprice-intelligent.trycloudflare.com";
+const API = "https://gtk-union-semiconductor-honor.trycloudflare.com";
 // ─────────────────────────────────────────────────────────────────────────
 
 const LIVE_ACCOUNT = 5;
@@ -37,13 +37,23 @@ export default function LiveDashboard(){
   const [loading,setLoading]   = useState(false);
   const [confirmArm,setConfirmArm] = useState(false); // require a deliberate second click to flip auto ON
 
+  // Price Break Through signal display (switched from CSR100 v2 3-TF,
+  // 2 Jul 2026) — reads from Bot 5's OWN live account (account=5) so this
+  // reflects exactly what _run_bot5_live_cycle() itself sees, not the
+  // demo account's (account 4) market view.
+  const LIVE_PAIRS = ["EURUSD","USDJPY","AUDUSD","USDCAD","USDCHF","NZDUSD"];
+  const [signalSymbol,setSignalSymbol] = useState("EURUSD");
+  const [liveSignal,setLiveSignal]     = useState(null);
+  const [pending,setPending]           = useState([]);
+
   const showToast = (msg,type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null), 4000); };
 
   const fetchAll = useCallback(async () => {
     try {
-      const [accRes, posRes, histRes, statusRes, capRes] = await Promise.all([
+      const [accRes, posRes, pendRes, histRes, statusRes, capRes] = await Promise.all([
         fetch(`${API}/account?acc=${LIVE_ACCOUNT}`),
         fetch(`${API}/positions?account=${LIVE_ACCOUNT}&magic=${LIVE_MAGIC}`),
+        fetch(`${API}/pending-orders?account=${LIVE_ACCOUNT}&magic=${LIVE_MAGIC}`),
         fetch(`${API}/history?days=30&account=${LIVE_ACCOUNT}&magic=${LIVE_MAGIC}`),
         fetch(`${API}/auto-status`),
         fetch(`${API}/live-max-positions`),
@@ -51,6 +61,7 @@ export default function LiveDashboard(){
       if (accRes.ok) { setAccount(await accRes.json()); setConnected(true); }
       else { setConnected(false); }
       if (posRes.ok) setPositions(await posRes.json());
+      if (pendRes.ok) setPending(await pendRes.json());
       if (histRes.ok) setHistory(await histRes.json());
       if (statusRes.ok) {
         const data = await statusRes.json();
@@ -72,6 +83,23 @@ export default function LiveDashboard(){
     const t = setInterval(fetchAll, 10000);
     return () => clearInterval(t);
   }, [fetchAll]);
+
+  // Fetch the Price Break Through signal for the currently selected pair.
+  // account=5 — this hits the LIVE account's own MT5 connection, same as
+  // every other call in this dashboard, so the signal shown here is
+  // exactly what _run_bot5_live_cycle() itself is seeing.
+  const fetchLiveSignal = useCallback(async (sym = signalSymbol) => {
+    try {
+      const r = await fetch(`${API}/analyze-breakthrough/${sym}?account=5`);
+      if (r.ok) setLiveSignal(await r.json());
+    } catch {}
+  }, [signalSymbol]);
+
+  useEffect(() => {
+    fetchLiveSignal();
+    const s = setInterval(() => fetchLiveSignal(), 15000);
+    return () => clearInterval(s);
+  }, [fetchLiveSignal]);
 
   const toggleAuto = async () => {
     const turningOn = !autoOn;
@@ -144,7 +172,7 @@ export default function LiveDashboard(){
       <div style={{background:`linear-gradient(90deg, ${C.liveDim}, ${C.live}22)`,borderBottom:`2px solid ${C.live}`,padding:"10px 20px",display:"flex",alignItems:"center",gap:10,position:"sticky",top:0,zIndex:100}}>
         <div style={{width:9,height:9,borderRadius:"50%",background:C.live,boxShadow:`0 0 8px ${C.live}`,animation:"pulse 1.6s infinite"}}/>
         <span style={{fontWeight:900,fontSize:14,letterSpacing:0.5,color:C.live}}>LIVE TRADING — REAL MONEY</span>
-        <span style={{fontSize:11,color:C.muted,marginLeft:8}}>Bot 5 · CSR100 v2 · min_retest=2 · Magic {LIVE_MAGIC}</span>
+        <span style={{fontSize:11,color:C.muted,marginLeft:8}}>Bot 5 · Price Break Through · Magic {LIVE_MAGIC}</span>
         <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
           <div style={{width:7,height:7,borderRadius:"50%",background:connected?C.buy:C.sell}}/>
           <span style={{fontSize:11,fontFamily:C.mono,color:connected?C.buy:C.sell}}>{connected?"CONNECTED":"OFFLINE"}</span>
@@ -236,6 +264,96 @@ export default function LiveDashboard(){
               </span>
             </div>
           </div>
+        </div>
+
+        {/* Price Break Through signal — trend / anchor / pivot / Fibo dual-entry */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+            <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,fontWeight:600}}>
+              🎯 Price Break Through
+            </div>
+            <span style={{fontSize:9,color:C.dim,fontFamily:C.mono}}>Fibo 61.8% / 78.6%</span>
+          </div>
+
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:12}}>
+            {LIVE_PAIRS.map(p=>(
+              <button key={p} onClick={()=>setSignalSymbol(p)}
+                style={{fontFamily:C.mono,fontSize:10,fontWeight:700,padding:"4px 9px",borderRadius:4,
+                  background:signalSymbol===p?C.live:"transparent",
+                  color:signalSymbol===p?"#000":C.dim,
+                  border:`1px solid ${signalSymbol===p?C.live:C.border}`,cursor:"pointer"}}>
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {!liveSignal ? (
+            <div style={{fontSize:11,color:C.muted,textAlign:"center",padding:"10px 0"}}>Loading signal...</div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:7}}>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"baseline",
+                background:C.bg,border:`1px solid ${C.border}`,borderRadius:5,padding:"7px 10px"}}>
+                <span style={{fontSize:10,color:C.muted,whiteSpace:"nowrap",fontWeight:600}}>Trend</span>
+                <span style={{fontSize:10,fontFamily:C.mono,fontWeight:700,color:C.text,textAlign:"right"}}>{liveSignal.trend||"—"}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"baseline",
+                background:C.bg,border:`1px solid ${C.border}`,borderRadius:5,padding:"7px 10px"}}>
+                <span style={{fontSize:10,color:C.muted,whiteSpace:"nowrap",fontWeight:600}}>Anchor (DTF/UTF)</span>
+                <span style={{fontSize:10,fontFamily:C.mono,fontWeight:700,color:C.text,textAlign:"right"}}>{fmt(liveSignal.anchor_price)}</span>
+              </div>
+              <div style={{display:"flex",justifyContent:"space-between",gap:10,alignItems:"baseline",
+                background:C.bg,border:`1px solid ${C.border}`,borderRadius:5,padding:"7px 10px"}}>
+                <span style={{fontSize:10,color:C.muted,whiteSpace:"nowrap",fontWeight:600}}>Pivot (UTC/DTC)</span>
+                <span style={{fontSize:10,fontFamily:C.mono,fontWeight:700,color:C.text,textAlign:"right"}}>{fmt(liveSignal.pivot_price)}</span>
+              </div>
+
+              <div style={{display:"flex",justifyContent:"space-between",marginTop:2,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                <span style={{fontSize:10,color:C.muted,fontWeight:700}}>VALID SETUP</span>
+                <span style={{fontSize:12,fontFamily:C.mono,fontWeight:800,color:liveSignal.valid_setup?C.buy:C.dim}}>
+                  {liveSignal.valid_setup?`✅ YES — ${liveSignal.direction}`:"NO"}
+                </span>
+              </div>
+              {liveSignal.valid_setup&&(
+                <>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,fontFamily:C.mono}}>
+                    <span>Entry1 {fmt(liveSignal.entry_1)}</span>
+                    <span>Entry2 {fmt(liveSignal.entry_2)}</span>
+                  </div>
+                  <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:C.muted,fontFamily:C.mono}}>
+                    <span style={{color:C.sell}}>SL {fmt(liveSignal.sl)}</span>
+                    <span style={{color:C.buy}}>TP {fmt(liveSignal.tp)}</span>
+                  </div>
+                </>
+              )}
+              {!liveSignal.valid_setup && liveSignal.reason && (
+                <div style={{fontSize:9,color:C.dim,marginTop:2}}>{liveSignal.reason}</div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Pending orders — Breakthrough places TWO pending legs (Entry1/Entry2)
+            per setup; they sit here until one fills (then the other auto-cancels,
+            see auto_trader.py _run_bot5_live_cycle) or expires after 24h. */}
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:16}}>
+          <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>
+            Pending Orders ({pending.length})
+          </div>
+          {pending.length===0 ? (
+            <div style={{fontSize:12,color:C.muted,textAlign:"center",padding:"14px 0"}}>No pending orders</div>
+          ) : (
+            <div style={{display:"flex",flexDirection:"column",gap:6}}>
+              {pending.map(o=>(
+                <div key={o.ticket} style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:6,padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <span style={{fontFamily:C.mono,fontSize:13,fontWeight:700}}>{o.symbol}</span>
+                    <span style={{fontFamily:C.mono,fontSize:11,fontWeight:700,color:(o.type||"").toUpperCase().includes("BUY")?C.buy:C.sell}}>{o.type}</span>
+                  </div>
+                  <span style={{fontSize:10,color:C.muted,fontFamily:C.mono}}>#{o.ticket} · {fmt(o.price)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Open positions */}
