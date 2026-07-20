@@ -42,7 +42,7 @@ function Pill({label}){
 }
 
 // ── Bot Panel (reusable) ──────────────────────────────────────────────────
-function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot2,isBot3,isBot4,liveSignal,lastTrade}){
+function BotPanel({botId,botName,botColor,account,positions,history,autoLog,autoMode,onToggleAuto,botMode,onBotMode,orderForm,setOrderForm,symbol,onPlaceOrder,onClosePos,loading,isBot1,isBot2,isBot3,isBot4,liveSignal,lastTrade}){
   const totalPnl=positions.reduce((s,p)=>s+(p.profit||0),0);
   const histPnl=history.reduce((s,h)=>s+(h.profit||0),0);
   const [tab,setTab]=useState("positions");
@@ -94,6 +94,53 @@ function BotPanel({botId,botName,botColor,account,positions,history,autoLog,auto
             {modeOptions.map(([k,l])=>(
               <button key={k} onClick={()=>onBotMode(k)} style={{flex:1,fontFamily:C.sans,fontSize:10,fontWeight:600,padding:"4px 0",borderRadius:4,cursor:"pointer",background:botMode===k?botColor||C.accent:C.card,color:botMode===k?"#000":C.dim,border:`1px solid ${botMode===k?botColor||C.accent:C.border}`}}>{l}</button>
             ))}
+          </div>
+        )}
+
+        {/* Bot 1 Info Banner — HHLL Batus S&D (18 Jul 2026, replaces old RSI+MACD+EMA) */}
+        {isBot1&&(
+          <div style={{padding:"8px 14px",borderBottom:`1px solid ${C.border}`,background:(botColor||C.accent)+"11",border:`1px solid ${(botColor||C.accent)}33`}}>
+            <div style={{fontSize:10,color:botColor||C.accent,fontWeight:700,marginBottom:3}}>🎯 HHLL Batus S&D — Multi-TF Topdown</div>
+            <div style={{fontSize:9,color:C.muted}}>Magic: 11111 · Account 1 · Body-to-Body Zones</div>
+            <div style={{fontSize:9,color:C.muted,marginTop:2}}>D1 Bias → H4 Zone (fresh+imbalance) → H1 Validity → M15 Engulfed Trigger</div>
+            {liveSignal&&(
+              <div style={{marginTop:6,paddingTop:6,borderTop:`1px solid ${(botColor||C.accent)}33`,display:"flex",flexDirection:"column",gap:5}}>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                  <span style={{fontSize:9,color:C.muted,whiteSpace:"nowrap"}}>D1 Bias</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:liveSignal.indicators?.bias==="BUY"?C.buy:liveSignal.indicators?.bias==="SELL"?C.sell:C.dim,textAlign:"right"}}>
+                    {liveSignal.indicators?.bias||"—"}
+                  </span>
+                </div>
+                <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                  <span style={{fontSize:9,color:C.muted,whiteSpace:"nowrap"}}>Zone</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:C.text,textAlign:"right"}}>
+                    {liveSignal.indicators?.zone?`${liveSignal.indicators.zone.base} ${liveSignal.indicators.zone.type}`:"—"}
+                  </span>
+                </div>
+                {liveSignal.indicators?.zone&&(
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                    <span style={{fontSize:9,color:C.muted,whiteSpace:"nowrap"}}>Zone Range</span>
+                    <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:C.text,textAlign:"right"}}>
+                      {fmt(liveSignal.indicators.zone.bottom)}–{fmt(liveSignal.indicators.zone.top)}
+                    </span>
+                  </div>
+                )}
+                {liveSignal.risk_management?.rr>0&&(
+                  <div style={{display:"flex",justifyContent:"space-between",gap:8,alignItems:"baseline"}}>
+                    <span style={{fontSize:9,color:C.muted,whiteSpace:"nowrap"}}>SL / TP</span>
+                    <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:C.text,textAlign:"right"}}>
+                      {fmt(liveSignal.risk_management.sl)} / {fmt(liveSignal.risk_management.tp)} ({liveSignal.risk_management.rr}x RR)
+                    </span>
+                  </div>
+                )}
+                <div style={{display:"flex",justifyContent:"space-between",marginTop:2,paddingTop:5,borderTop:`1px solid ${(botColor||C.accent)}22`}}>
+                  <span style={{fontSize:9,color:C.muted,fontWeight:700}}>SIGNAL</span>
+                  <span style={{fontSize:9,fontFamily:C.mono,fontWeight:700,color:sigCol(liveSignal.signal?.direction)}}>
+                    {liveSignal.signal?.direction&&liveSignal.signal.direction!=="NEUTRAL"?`${liveSignal.signal.direction} (${liveSignal.signal.confidence}%)`:"NO SETUP"}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -366,7 +413,7 @@ export default function TradingDashboard(){
 
   const fetchAnalysis=useCallback(async(sym=symbol,tf=timeframe)=>{
     try{
-      const[ar,cr]=await Promise.all([fetch(`${API}/analyze/${sym}?timeframe=${tf}`),fetch(`${API}/candles/${sym}?timeframe=${tf}&count=60`)]);
+      const[ar,cr]=await Promise.all([fetch(`${API}/analyze/${sym}`),fetch(`${API}/candles/${sym}?timeframe=${tf}&count=60`)]);
       if(ar.ok)setAnalysis(await ar.json());
       if(cr.ok)setCandles(await cr.json());
     }catch{}
@@ -598,7 +645,7 @@ export default function TradingDashboard(){
 
   // ✅ CHANGE 4 & 5: Remove mode/setMode from Bot 3, update name
   const botConfigs=[
-    {id:1,name:"Bot 1",color:C.accent,account:acc1,positions:pos1,history:hist1,auto:auto1,setAuto:setAuto1,mode:bot1Mode,setMode:setBot1Mode},
+    {id:1,name:"Bot 1 — HHLL Batus S&D",color:C.accent,account:acc1,positions:pos1,history:hist1,auto:auto1,setAuto:setAuto1,mode:bot1Mode,setMode:setBot1Mode,isBot1:true,liveSignal:analysis},
     {id:2,name:"Bot 2 — Price Break Through",color:"#6366f1",account:acc2,positions:pos2,history:hist2,auto:auto2,setAuto:setAuto2,mode:bot2Mode,setMode:setBot2Mode,isBot2:true},
     {id:3,name:"Bot 3 — SNR Advance Ebook",color:C.csr,account:acc3,positions:pos3,history:hist3,auto:auto3,setAuto:setAuto3,isBot3:true},
     {id:4,name:"Bot 4",color:C.csr2,account:acc4,positions:pos4,history:hist4,auto:auto4,setAuto:setAuto4,mode:bot4Mode,setMode:setBot4Mode,isBot4:true,liveSignal:bot4Signal},
@@ -688,15 +735,24 @@ export default function TradingDashboard(){
             </div>
           </div>
 
-          {/* Indicators */}
+          {/* Indicators — HHLL Batus S&D (18 Jul 2026, replaces RSI/MACD/EMA grid) */}
           {ind&&(
             <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:8,padding:14}}>
-              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>Indicators</div>
+              <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>HHLL Batus — D1/H4/H1/M15 Topdown</div>
               <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14}}>
-                {[["RSI (14)",ind.rsi,ind.rsi<30?C.buy:ind.rsi>70?C.sell:C.text,1],["MACD",ind.macd,ind.macd>0?C.buy:C.sell,4],["MACD Sig",ind.macd_signal,null,4],["MACD Hist",ind.macd_hist,ind.macd_hist>0?C.buy:C.sell,4],["EMA 20",ind.ema20,null,5],["EMA 50",ind.ema50,null,5],["EMA 200",ind.ema200,null,5],["ATR",ind.atr,null,5]].map(([lbl,val,col,dec])=>(
+                {[
+                  ["D1 Bias",ind.bias,ind.bias==="BUY"?C.buy:ind.bias==="SELL"?C.sell:C.text],
+                  ["Zone Type",ind.zone?`${ind.zone.base} ${ind.zone.type}`:"—",C.text],
+                  ["Zone Bottom",ind.zone?fmt(ind.zone.bottom):"—",C.text],
+                  ["Zone Top",ind.zone?fmt(ind.zone.top):"—",C.text],
+                  ["Current Price",ind.current_price!=null?fmt(ind.current_price):"—",C.text],
+                  ["SL",analysis?.risk_management?.sl!=null?fmt(analysis.risk_management.sl):"—",C.sell],
+                  ["TP",analysis?.risk_management?.tp!=null?fmt(analysis.risk_management.tp):"—",C.buy],
+                  ["RR",analysis?.risk_management?.rr>0?`${analysis.risk_management.rr}x`:"—",C.accent],
+                ].map(([lbl,val,col])=>(
                   <div key={lbl}>
                     <div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:1,marginBottom:3}}>{lbl}</div>
-                    <div style={{fontFamily:C.mono,fontSize:13,fontWeight:700,color:col||C.text}}>{fmt(val,dec)}</div>
+                    <div style={{fontFamily:C.mono,fontSize:13,fontWeight:700,color:col||C.text}}>{val}</div>
                   </div>
                 ))}
               </div>
@@ -733,7 +789,7 @@ export default function TradingDashboard(){
             <div style={{fontSize:10,color:C.muted,textTransform:"uppercase",letterSpacing:1.5,marginBottom:12,fontWeight:600}}>📊 Strategy Performance (14d)</div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:2,background:C.border,borderRadius:6,overflow:"hidden"}}>
               {[
-                {label:"Bot 1 — Standard",color:C.accent,perf:perf1},
+                {label:"Bot 1 — HHLL Batus S&D",color:C.accent,perf:perf1},
                 {label:"Bot 2 — Price Break Through",color:"#6366f1",perf:perf2},
                 {label:"Bot 3 — SNR Advance",color:C.csr,perf:perf3},
                 {label:"Bot 4 — CSR100 v2",color:C.csr2,perf:perf4},
