@@ -905,6 +905,7 @@ export default function TradingDashboard(){
               onPlaceOrder={placeOrder}
               onClosePos={closePos}
               loading={loadOrder}
+              isBot1={activeCfg.isBot1||false}
               isBot2={activeCfg.isBot2||false}
               isBot3={activeCfg.isBot3||false}
               isBot4={activeCfg.isBot4||false}
